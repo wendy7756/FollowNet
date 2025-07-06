@@ -1,63 +1,63 @@
-# 🚀 FollowNet 安装指南 (无限制爬取版本)
+# 🚀 FollowNet Installation Guide
 
-## 系统要求
+## System Requirements
 
-- **Python**: 3.9+
+- **Python**: 3.11+
 - **Node.js**: 18+
-- **内存**: 推荐8GB+
-- **操作系统**: macOS, Linux, Windows
+- **Memory**: 8GB+ recommended
+- **Operating System**: macOS, Linux, Windows
 
-## 📦 快速安装
+## 📦 Quick Installation
 
-### 1. 克隆项目
+### 1. Clone the Repository
 ```bash
 git clone <repository-url>
 cd FollowNet
 ```
 
-### 2. 后端设置
+### 2. Backend Setup
 
-#### 创建虚拟环境
+#### Create Virtual Environment
 ```bash
 cd backend
 python3 -m venv venv
 source venv/bin/activate  # macOS/Linux
-# 或
+# or
 venv\Scripts\activate     # Windows
 ```
 
-#### 安装Python依赖
+#### Install Python Dependencies
 ```bash
 pip install -r requirements.txt
 ```
 
-#### 安装Playwright浏览器
+#### Install Playwright Browser
 ```bash
 playwright install chromium
 ```
 
-### 3. 前端设置
+### 3. Frontend Setup
 ```bash
 cd ../frontend
 npm install
-# 或者使用pnpm
+# or use pnpm
 pnpm install
 ```
 
-## 🔧 依赖说明
+## 🔧 Dependencies Overview
 
-### 后端依赖 (requirements.txt)
+### Backend Dependencies (requirements.txt)
 ```txt
-fastapi==0.104.1          # Web框架
-uvicorn==0.24.0           # ASGI服务器
-playwright==1.40.0        # 浏览器自动化
-python-multipart==0.0.6   # 文件上传支持
-aiofiles==23.2.1          # 异步文件操作
-pydantic==2.5.0           # 数据验证
-aiohttp==3.12.13          # HTTP客户端 (新增)
+fastapi==0.104.1          # Web framework
+uvicorn==0.24.0           # ASGI server
+playwright==1.40.0        # Browser automation
+python-multipart==0.0.6   # File upload support
+aiofiles==23.2.1          # Async file operations
+pydantic==2.5.0           # Data validation
+aiohttp==3.12.13          # HTTP client
 ```
 
-### 前端依赖 (package.json)
+### Frontend Dependencies (package.json)
 ```json
 {
   "dependencies": {
@@ -66,7 +66,7 @@ aiohttp==3.12.13          # HTTP客户端 (新增)
     "axios": "^1.10.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
-    "lucide-react": "^0.523.0",      // 图标库 (包含Settings图标)
+    "lucide-react": "^0.523.0",
     "next": "^15.3.4",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
@@ -75,42 +75,42 @@ aiohttp==3.12.13          # HTTP客户端 (新增)
 }
 ```
 
-## 🚀 启动服务
+## 🚀 Starting Services
 
-### 方法1: 分别启动 (推荐)
+### Method 1: Start Separately (Recommended)
 
-#### 启动后端 (终端1)
+#### Start Backend (Terminal 1)
 ```bash
 cd backend
 source venv/bin/activate
 python main.py
 ```
-后端将运行在: http://localhost:8000
+Backend will run on: http://localhost:8000
 
-#### 启动前端 (终端2)
+#### Start Frontend (Terminal 2)
 ```bash
 cd frontend
 npm run dev
 ```
-前端将运行在: http://localhost:3000 (或下一个可用端口)
+Frontend will run on: http://localhost:3000 (or next available port)
 
-### 方法2: 使用脚本启动
+### Method 2: Using Start Script
 ```bash
-# 创建启动脚本
+# Create start script
 cat > start.sh << 'EOF'
 #!/bin/bash
-echo "🚀 Starting FollowNet with Unlimited Scraping..."
+echo "🚀 Starting FollowNet..."
 
-# 启动后端
+# Start backend
 cd backend
 source venv/bin/activate
 python main.py &
 BACKEND_PID=$!
 
-# 等待后端启动
+# Wait for backend to start
 sleep 3
 
-# 启动前端
+# Start frontend
 cd ../frontend
 npm run dev &
 FRONTEND_PID=$!
@@ -120,7 +120,7 @@ echo "Backend: http://localhost:8000"
 echo "Frontend: http://localhost:3000"
 echo "Press Ctrl+C to stop all services"
 
-# 等待用户中断
+# Wait for user interrupt
 trap "kill $BACKEND_PID $FRONTEND_PID; exit" INT
 wait
 EOF
@@ -129,26 +129,26 @@ chmod +x start.sh
 ./start.sh
 ```
 
-## 🔍 验证安装
+## 🔍 Installation Verification
 
-### 1. 检查后端
+### 1. Check Backend
 ```bash
 curl http://localhost:8000/health
-# 应该返回: {"detail":"Not Found"} (这是正常的，说明服务器在运行)
+# Should return: {"detail":"Not Found"} (this is normal, means server is running)
 ```
 
-### 2. 检查前端
-访问 http://localhost:3000，应该看到FollowNet界面
+### 2. Check Frontend
+Visit http://localhost:3000, you should see the FollowNet interface
 
-### 3. 测试无限制功能
-1. 在前端勾选 "Unlimited Mode"
-2. 设置 "Maximum Users to Scrape" 为 500
-3. 输入测试URL: `https://github.com/octocat`
-4. 点击 "Start" 开始测试
+### 3. Test Functionality
+1. Enter a test URL: `https://github.com/octocat`
+2. Check if platform detection works
+3. Click "Submit" to start scraping
+4. Verify data extraction and CSV download
 
-## 🛠️ 故障排除
+## 🛠️ Troubleshooting
 
-### 常见问题
+### Common Issues
 
 **Q1: `command not found: python3`**
 ```bash
@@ -159,7 +159,7 @@ brew install python3
 sudo apt update && sudo apt install python3 python3-pip
 
 # Windows
-# 从 python.org 下载安装
+# Download and install from python.org
 ```
 
 **Q2: `command not found: npm`**
@@ -172,124 +172,138 @@ curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
 sudo apt-get install -y nodejs
 
 # Windows
-# 从 nodejs.org 下载安装
+# Download and install from nodejs.org
 ```
 
-**Q3: `playwright install` 失败**
+**Q3: `playwright install` fails**
 ```bash
-# 手动安装浏览器
+# Install browser manually
 python -m playwright install chromium
 
-# 如果还是失败，尝试
+# If still fails, try
 python -m playwright install-deps
 python -m playwright install chromium
 ```
 
-**Q4: 端口被占用**
+**Q4: Port already in use**
 ```bash
-# 查找占用端口的进程
-lsof -ti:8000  # 后端端口
-lsof -ti:3000  # 前端端口
+# Find process using port
+lsof -ti:8000  # Backend port
+lsof -ti:3000  # Frontend port
 
-# 杀死进程
+# Kill process
 kill -9 <PID>
 
-# 或者修改端口
-# 后端: 修改 main.py 中的端口
-# 前端: 使用 npm run dev -- -p 3001
+# Or change port
+# Backend: modify port in main.py
+# Frontend: use npm run dev -- -p 3001
 ```
 
-**Q5: 无限制模式不工作**
+**Q5: Package installation fails**
 ```bash
-# 检查后端日志
+# Clear npm cache
+npm cache clean --force
+
+# Delete node_modules and reinstall
+rm -rf node_modules
+npm install
+
+# For Python packages
+pip install --upgrade pip
+pip install -r requirements.txt --force-reinstall
+```
+
+**Q6: Playwright browser download fails**
+```bash
+# Set proxy if needed
+export HTTPS_PROXY=http://proxy.example.com:8080
+
+# Install with specific browser
+playwright install chromium --with-deps
+
+# Check installation
+playwright install-deps
+```
+
+### Performance Issues
+
+**Memory shortage**
+```bash
+# Reduce concurrent processing
+# In optimized scrapers, modify:
+max_concurrent = 3    # Reduce from higher values
+batch_size = 10       # Reduce batch size
+```
+
+**Network timeouts**
+```bash
+# Increase timeout values
+# In scrapers, modify:
+timeout = 30000  # Increase from 15000
+```
+
+## 📊 Performance Testing
+
+### Basic Test
+```bash
 cd backend
-source venv/bin/activate
-python main.py
-
-# 查看是否有错误信息
-# 确保看到: "🚀 Starting unlimited scraping mode"
+python -c "
+import asyncio
+from scrapers.github_two_stage import GitHubTwoStageOptimized
+async def test():
+    scraper = GitHubTwoStageOptimized()
+    result = await scraper.scrape_followers('octocat', max_pages=1)
+    print(f'Test successful: {len(result)} users scraped')
+asyncio.run(test())
+"
 ```
 
-**Q6: 前端Advanced Settings不显示**
-```bash
-# 检查前端依赖
-cd frontend
-npm install lucide-react
+### Expected Performance
+- **Small scale** (100 users): 1-2 minutes
+- **Medium scale** (500 users): 3-5 minutes  
+- **Large scale** (1000 users): 5-8 minutes
 
-# 重启前端
-npm run dev
-```
+## 🔄 Update Guide
 
-### 性能优化
-
-**内存不足**
-```bash
-# 减少并发数
-# 在 unlimited_followers_scraper.py 中修改:
-max_concurrent = 10  # 从20减少到10
-batch_size = 25      # 从50减少到25
-```
-
-**网络超时**
-```bash
-# 增加超时时间
-# 在 unlimited_followers_scraper.py 中修改:
-timeout = 30000  # 从15000增加到30000
-```
-
-## 📊 性能测试
-
-### 基准测试
-```bash
-cd backend
-python test_unlimited.py
-```
-
-### 预期结果
-- **小规模** (500用户): 2-3分钟
-- **中规模** (1000用户): 3-5分钟  
-- **大规模** (2000用户): 5-8分钟
-
-## 🔄 更新指南
-
-### 更新后端依赖
+### Update Backend Dependencies
 ```bash
 cd backend
 source venv/bin/activate
 pip install -r requirements.txt --upgrade
 ```
 
-### 更新前端依赖
+### Update Frontend Dependencies
 ```bash
 cd frontend
 npm update
-# 或
+# or
 pnpm update
 ```
 
-### 更新Playwright
+### Update Playwright
 ```bash
 cd backend
 source venv/bin/activate
 playwright install chromium
 ```
 
-## 🎯 下一步
+## 🎯 Next Steps
 
-安装完成后，你可以：
+After installation, you can:
 
-1. **阅读功能文档**: `UNLIMITED_SCRAPING.md`
-2. **查看使用示例**: `DEMO.md`
-3. **了解部署方案**: `DEPLOYMENT.md`
-4. **参与开发**: 查看源码和贡献指南
+1. **Read functionality docs**: Check the main README
+2. **View usage examples**: `DEMO.md`
+3. **Learn deployment**: `DEPLOYMENT.md`
+4. **Contribute**: Check source code and contribution guidelines
 
-## 📞 获取帮助
+## 📞 Getting Help
 
-如果遇到问题：
+If you encounter issues:
 
-1. 检查本文档的故障排除部分
-2. 查看GitHub Issues
-3. 运行测试脚本进行诊断
-4. 检查后端和前端的控制台输出
+1. Check the troubleshooting section above
+2. Review GitHub Issues
+3. Run diagnostic tests
+4. Check backend and frontend console output
+5. Verify all dependencies are correctly installed
 
-祝你使用愉快！🎉 
+Happy coding! 🎉 

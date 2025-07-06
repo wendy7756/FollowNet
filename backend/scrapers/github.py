@@ -85,7 +85,7 @@ class GitHubScraper(BaseScraper):
             return users
             
         except Exception as e:
-            print(f"爬取stargazers时出错: {e}")
+            print(f"Error scraping stargazers: {e}")
             return []
         finally:
             await browser.close()
@@ -158,7 +158,7 @@ class GitHubScraper(BaseScraper):
             return users
             
         except Exception as e:
-            print(f"爬取followers时出错: {e}")
+            print(f"Error scraping followers: {e}")
             return []
         finally:
             await browser.close()

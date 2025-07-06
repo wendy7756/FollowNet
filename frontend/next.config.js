@@ -8,7 +8,7 @@ const nextConfig = {
       {
         source: '/api/:path*',
         destination: process.env.NODE_ENV === 'production' 
-          ? 'https://your-railway-app.railway.app/api/:path*'
+          ? 'https://follownet.onrender.com/api/:path*'
           : 'http://localhost:8000/api/:path*',
       },
     ];

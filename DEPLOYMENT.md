@@ -1,47 +1,46 @@
-# FollowNet 部署指南
+# FollowNet Deployment Guide
 
-## 🚀 部署架构
+## 🚀 Deployment Architecture
 
-- **前端**: Cloudflare Pages (Static hosting)
-- **后端**: Railway (Supports Playwright + FastAPI)
+- **Backend**: Railway (Supports Playwright + FastAPI)
+- **Frontend**: Vercel (Static hosting + Serverless functions)
 
-## 📋 部署前准备
+## 📋 Prerequisites
 
-### 环境要求
-- Node.js 18+ (前端)
-- Python 3.11+ (后端)
-- Git 账户
-- Cloudflare 账户
-- Railway 账户
+### Environment Requirements
+- Node.js 18+ (Frontend)
+- Python 3.11+ (Backend)
+- Git account
+- Railway account
+- Vercel account
 
-## 🔧 后端部署 (Railway)
+## 🔧 Backend Deployment (Railway)
 
-### 1. 准备Railway部署
+### 1. Prepare Railway Deployment
 
-1. 登录 [Railway](https://railway.app)
-2. 创建新项目
-3. 连接你的GitHubRepositories
+1. Login to [Railway](https://railway.app)
+2. Create a new project
+3. Connect your GitHub repository
 
-### 2. 配置环境变量
+### 2. Configure Environment Variables
 
-在Railway项目设置中添加以下环境变量：
+Add the following environment variables in Railway project settings:
 
 ```bash
 PYTHON_VERSION=3.11
 PORT=8000
-PLAYWRIGHT_BROWSERS_PATH=/opt/railway/bin
 ```
 
-### 3. 部署配置
+### 3. Deployment Configuration
 
-Railway会自动检测到Python项目并安装依赖。确保 `railway.json` 文件在根目录：
+Railway will automatically detect the Python project and install dependencies. Make sure the `railway.json` file is in the root directory:
 
 ```json
 {
   "$schema": "https://railway.app/railway.schema.json",
   "build": {
     "builder": "NIXPACKS",
-    "buildCommand": "cd backend && pip install -r requirements.txt && playwright install",
+    "buildCommand": "cd backend && pip install -r requirements.txt && playwright install chromium",
     "watchPatterns": ["backend/**"]
   },
   "deploy": {
@@ -54,20 +53,20 @@ Railway会自动检测到Python项目并安装依赖。确保 `railway.json` 文
 }
 ```
 
-### 4. 获取部署URL
+### 4. Get Deployment URL
 
-部署成功后，Railway会提供一个URL，类似：
+After successful deployment, Railway will provide a URL like:
 ```
 https://your-app-name.railway.app
 ```
 
-记录这个URL，前端需要用到。
+Record this URL, as it will be needed for the frontend configuration.
 
-## 🌐 前端部署 (Cloudflare Pages)
+## 🌐 Frontend Deployment (Vercel)
 
-### 1. 更新API配置
+### 1. Update API Configuration
 
-在 `frontend/next.config.js` 中更新生产环境API URL：
+In `frontend/next.config.js`, update the production API URL:
 
 ```javascript
 async rewrites() {
@@ -75,69 +74,64 @@ async rewrites() {
     {
       source: '/api/:path*',
       destination: process.env.NODE_ENV === 'production' 
-        ? 'https://your-railway-app.railway.app/api/:path*'  // 替换为你的Railway URL
+        ? 'https://your-railway-app.railway.app/api/:path*'  // Replace with your Railway URL
         : 'http://localhost:8000/api/:path*',
     },
   ];
 },
 ```
 
-### 2. 部署到Cloudflare Pages
+### 2. Deploy to Vercel
 
-#### 方法1: 通过Dashboard
+#### Method 1: Via Vercel Dashboard
 
-1. 登录 [Cloudflare Dashboard](https://dash.cloudflare.com)
-2. 进入 "Pages" 
-3. 点击 "Create a project"
-4. 连接你的GitHubRepositories
-5. 配置构建设置：
-   - **Framework preset**: Next.js
-   - **Build command**: `cd frontend && npm run build`
-   - **Build output directory**: `frontend/out`
-   - **Root directory**: `/`
+1. Login to [Vercel](https://vercel.com)
+2. Click "New Project"
+3. Import your GitHub repository
+4. Configure build settings:
+   - **Framework Preset**: Next.js
+   - **Root Directory**: `frontend`
+   - **Build Command**: `npm run build`
+   - **Output Directory**: `.next`
 
-#### 方法2: 通过Wrangler CLI
+#### Method 2: Via Vercel CLI
 
 ```bash
-# 安装Wrangler
-npm install -g wrangler
+# Install Vercel CLI
+npm install -g vercel
 
-# 登录Cloudflare
-wrangler login
-
-# 部署
+# Deploy
 cd frontend
-npm run build
-wrangler pages publish out --project-name follownet
+vercel --prod
 ```
 
-### 3. 环境变量配置
+### 3. Environment Variables Configuration
 
-在Cloudflare Pages设置中添加：
+Add the following environment variables in Vercel project settings:
 
 ```bash
 NODE_ENV=production
 NEXT_PUBLIC_API_URL=https://your-railway-app.railway.app
 ```
 
-### 4. 自定义域名 (可选)
+### 4. Custom Domain (Optional)
 
-1. 在Cloudflare Pages项目中点击 "Custom domains"
-2. 添加你的域名
-3. 配置DNS记录
+1. In Vercel project settings, click "Domains"
+2. Add your custom domain
+3. Configure DNS records as instructed
 
-## 🔄 CORS配置
+## 🔄 CORS Configuration
 
-确保后端正确配置CORS以允许前端访问：
+Ensure backend properly configures CORS to allow frontend access:
 
 ```python
 # backend/main.py
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "http://localhost:3000",  # 开发环境
-        "https://your-cloudflare-pages.pages.dev",  # Cloudflare Pages
-        "https://your-custom-domain.com"  # 自定义域名
+        "http://localhost:3000",  # Development
+        "https://your-vercel-app.vercel.app",  # Vercel
+        "https://your-custom-domain.com"  # Custom domain
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -145,139 +139,151 @@ app.add_middleware(
 )
 ```
 
-## ⚙️ 环境特定配置
+## ⚙️ Environment-specific Configuration
 
-### 开发环境
+### Development Environment
 ```bash
-# 前端
+# Frontend
 cd frontend
 npm run dev
 
-# 后端
+# Backend
 cd backend
 python main.py
 ```
 
-### 生产环境
+### Production Environment
 
-前端会自动部署到Cloudflare Pages，后端部署到Railway。
+Frontend automatically deploys to Vercel, backend deploys to Railway.
 
-## 🛠️ 部署验证
+## 🛠️ Deployment Verification
 
-### 1. 检查后端健康状态
+### 1. Check Backend Health
 
-访问: `https://your-railway-app.railway.app/`
+Visit: `https://your-railway-app.railway.app/`
 
-应该返回:
+Should return:
 ```json
-{"message": "FollowNet API 正在运行"}
+{"message": "FollowNet API is running"}
 ```
 
-### 2. 检查前端
+### 2. Check Frontend
 
-访问你的Cloudflare Pages URL，确保：
-- 页面正常加载
-- 平台检测功能正常
-- API调用成功
+Visit your Vercel URL and verify:
+- Page loads correctly
+- Platform detection works
+- API calls succeed
 
-### 3. 测试完整流程
+### 3. Test Complete Workflow
 
-1. 输入一个GitHub URL
-2. 检查平台是否被正确检测
-3. 点击Submit按钮
-4. 验证数据爬取和CSV下载功能
+1. Enter a GitHub URL
+2. Check platform detection
+3. Click Submit button
+4. Verify data scraping and CSV download functionality
 
-## 🚨 常见问题
+## 🚨 Common Issues
 
-### Railway部署问题
+### Railway Deployment Issues
 
-**Q: Playwright安装失败**
+**Q: Playwright installation fails**
 ```bash
-# 在Railway中，确保使用正确的构建命令
-playwright install --with-deps chromium
+# In Railway, ensure correct build command
+playwright install chromium
 ```
 
-**Q: 内存不足**
-- 升级Railway计划
-- 优化爬取器的内存使用
+**Q: Out of memory**
+- Upgrade Railway plan
+- Optimize scraper memory usage
 
-### Cloudflare Pages问题
+### Vercel Deployment Issues
 
-**Q: API调用失败**
-- 检查CORS配置
-- 验证API URL是否正确
-- 检查_headers文件配置
+**Q: API calls fail**
+- Check CORS configuration
+- Verify API URL is correct
+- Check _headers file configuration
 
-**Q: 构建失败**
+**Q: Build fails**
 ```bash
-# 确保package.json中有正确的脚本
+# Ensure package.json has correct scripts
 "scripts": {
   "build": "next build",
-  "export": "next export"
+  "start": "next start"
 }
 ```
 
-## 📊 性能优化
+## 🔧 Alternative Deployment: Render
 
-### 后端优化
-- 启用Redis缓存
-- 配置CDN
-- 优化数据库查询
+If you prefer Render for backend deployment:
 
-### 前端优化
-- 启用Cloudflare缓存
-- 压缩静态资源
-- 使用Cloudflare Images优化
+### Render Configuration
+- **Root Directory**: `backend`
+- **Build Command**: `pip install -r requirements.txt && playwright install chromium`
+- **Start Command**: `python main.py`
+- **Environment Variables**: `PYTHON_VERSION=3.11.7`, `PORT=8000`
 
-## 🔒 安全考虑
+This configuration has been tested and works successfully.
 
-### API安全
-- 实施速率限制
-- 添加API密钥验证
-- 配置防火墙规则
+## 📊 Performance Optimization
 
-### 前端安全
-- 启用HSTS
-- 配置CSP头部
-- 使用HTTPS
+### Backend Optimization
+- Enable caching
+- Configure CDN
+- Optimize database queries
 
-## 📈 监控和日志
+### Frontend Optimization
+- Enable Vercel caching
+- Compress static assets
+- Use Vercel Image optimization
 
-### Railway监控
-- 使用Railway内置监控
-- 配置错误警报
-- 查看应用日志
+## 🔒 Security Considerations
 
-### Cloudflare分析
-- 启用Web Analytics
-- 监控性能指标
-- 查看访问统计
+### API Security
+- Implement rate limiting
+- Add API key authentication
+- Configure firewall rules
 
-## 🔄 CI/CD流程
+### Frontend Security
+- Enable HSTS
+- Configure CSP headers
+- Use HTTPS
 
-### 自动部署
+## 📈 Monitoring and Logging
 
-1. **代码推送** → GitHub
-2. **Railway自动构建** → 后端部署
-3. **Cloudflare Pages自动构建** → 前端部署
+### Railway Monitoring
+- Use Railway built-in monitoring
+- Configure error alerts
+- View application logs
 
-### 分支策略
+### Vercel Analytics
+- Enable Web Analytics
+- Monitor performance metrics
+- View access statistics
 
-- `main` → 生产环境
-- `staging` → 测试环境
-- `dev` → 开发环境
+## 🔄 CI/CD Pipeline
 
-## 📞 支持
+### Automatic Deployment
 
-如果遇到部署问题：
+1. **Code Push** → GitHub
+2. **Railway Auto-build** → Backend deployment
+3. **Vercel Auto-build** → Frontend deployment
 
-1. 检查构建日志
-2. 验证环境变量配置
-3. 确认依赖版本兼容性
-4. 查看官方文档：
+### Branch Strategy
+
+- `main` → Production environment
+- `staging` → Staging environment
+- `dev` → Development environment
+
+## 📞 Support
+
+If you encounter deployment issues:
+
+1. Check build logs
+2. Verify environment variable configuration
+3. Confirm dependency version compatibility
+4. Review official documentation:
    - [Railway Docs](https://docs.railway.app)
-   - [Cloudflare Pages Docs](https://developers.cloudflare.com/pages)
+   - [Vercel Docs](https://vercel.com/docs)
 
 ---
 
-🎉 部署完成！你的FollowNet应用现在可以在全球范围内访问了。 
+🎉 Deployment complete! Your FollowNet application is now accessible globally. 

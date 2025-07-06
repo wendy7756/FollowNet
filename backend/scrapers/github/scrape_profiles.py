@@ -233,7 +233,7 @@ class GitHubProfileScraper:
             return output_file
 
         except Exception as e:
-            print(f"第二阶段处理过程中出错: {e}")
+            print(f"Error during second stage processing: {e}")
             return ""
         finally:
             await browser.close()

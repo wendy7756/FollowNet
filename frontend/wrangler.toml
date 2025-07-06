@@ -11,5 +11,5 @@ dir = ".next"
 
 [[redirects]]
 from = "/api/*"
-to = "https://your-railway-app.railway.app/api/*"
+to = "https://follownet.onrender.com/api/*"
 status = 200 

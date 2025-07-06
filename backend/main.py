@@ -53,6 +53,40 @@ class ScrapeResponse(BaseModel):
 # 存储爬取结果的内存缓存
 scrape_cache = {}
 
+def detect_platform_name(url: str) -> str:
+    """检测平台名称用于错误消息"""
+    parsed = urlparse(url)
+    domain = parsed.netloc.lower()
+    
+    if 'github.com' in domain:
+        return 'GitHub'
+    elif 'twitter.com' in domain or 'x.com' in domain:
+        return 'Twitter/X'
+    elif 'youtube.com' in domain or 'youtu.be' in domain:
+        return 'YouTube'
+    elif 'instagram.com' in domain:
+        return 'Instagram'
+    elif 'linkedin.com' in domain:
+        return 'LinkedIn'
+    elif 'reddit.com' in domain:
+        return 'Reddit'
+    elif 'tiktok.com' in domain:
+        return 'TikTok'
+    elif 'facebook.com' in domain:
+        return 'Facebook'
+    elif 'producthunt.com' in domain:
+        return 'Product Hunt'
+    elif 'weibo.com' in domain:
+        return 'Weibo'
+    elif 'news.ycombinator.com' in domain:
+        return 'Hacker News'
+    elif 'medium.com' in domain:
+        return 'Medium'
+    elif 'bilibili.com' in domain:
+        return 'Bilibili'
+    else:
+        return domain  # 返回域名作为平台名称
+
 def detect_platform(url: str) -> str:
     """根据URL检测平台类型"""
     parsed = urlparse(url)
@@ -61,7 +95,9 @@ def detect_platform(url: str) -> str:
     if 'github.com' in domain:
         return 'github'
     else:
-        raise ValueError(f"As an individual developer with limited time, I've currently only launched GitHub user scraping. This is an open-source project, and you're welcome to contribute on GitHub. Thank you for your understanding and support! Currently unsupported domain: {domain}")
+        platform_name = detect_platform_name(url)
+        error_msg = f"Oops! We don't support {platform_name} yet.\n\nI'm an individual developer, and currently only GitHub user scraping is available. This is an open-source project — contributions are welcome on GitHub! Thank you for your understanding and support."
+        raise ValueError(error_msg)
 
 @app.get("/")
 async def root():
@@ -102,6 +138,8 @@ async def test_github_direct():
             "error": str(e)
         }
 
+
+
 @app.post("/api/scrape", response_model=ScrapeResponse)
 async def scrape_followers(request: ScrapeRequest):
     """分页爬取接口"""
@@ -115,18 +153,23 @@ async def scrape_followers(request: ScrapeRequest):
         # 选择对应的爬取器
         if platform == 'github':
             scraper = GitHubScraper()
+            print("🐌 使用标准爬虫模式")
         else:
-            raise HTTPException(status_code=400, detail="As an individual developer with limited time, I've currently only launched GitHub user scraping. This is an open-source project, and you're welcome to contribute on GitHub. Thank you for your understanding and support!")
+            platform_name = detect_platform_name(request.url)
+            error_msg = f"Oops! We don't support {platform_name} yet.\n\nI'm an individual developer, and currently only GitHub user scraping is available. This is an open-source project — contributions are welcome on GitHub! Thank you for your understanding and support."
+            raise HTTPException(status_code=400, detail=error_msg)
 
         print(f"开始执行第{request.page}页爬取，爬取当前页所有用户...")
 
         # 设置默认值
         page = request.page or 1
         
+        # 标准模式 - 使用GitHubScraper
+        github_scraper = scraper
         # 检查是否支持分页爬取
-        if hasattr(scraper, 'scrape_page'):
+        if hasattr(github_scraper, 'scrape_page'):
             # 使用分页爬取
-            result = await scraper.scrape_page(request.url, page)
+            result = await github_scraper.scrape_page(request.url, page)
             has_next = result.get('has_next_page', False)
             data = result.get('data', [])
         else:
@@ -134,15 +177,15 @@ async def scrape_followers(request: ScrapeRequest):
             if page > 1:
                 return ScrapeResponse(
                     success=False,
-                    message="该平台暂不支持分页爬取",
+                    message="Oops! This platform doesn't support pagination yet",
                     platform=platform,
                     current_page=page
                 )
             # 对于GitHub，使用默认参数
-            if platform == 'github' and hasattr(scraper, 'scrape'):
-                result = await scraper.scrape(request.url)
+            if platform == 'github' and hasattr(github_scraper, 'scrape'):
+                result = await github_scraper.scrape(request.url)
             else:
-                result = await scraper.scrape(request.url)
+                result = await github_scraper.scrape(request.url)
             data = result if result else []
             has_next = False
 
@@ -152,7 +195,7 @@ async def scrape_followers(request: ScrapeRequest):
             print("返回失败响应：未找到数据")
             return ScrapeResponse(
                 success=False,
-                message="未找到数据或爬取失败",
+                message="Oops! No data found or scraping failed",
                 platform=platform,
                 current_page=request.page
             )
@@ -189,7 +232,7 @@ async def scrape_followers(request: ScrapeRequest):
         print(f"Exception: {e}")
         import traceback
         traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"爬取失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Oops! Scraping failed: {str(e)}")
 
 @app.post("/api/scrape-stream")
 async def scrape_stream(request: ScrapeRequest):
@@ -201,14 +244,21 @@ async def scrape_stream(request: ScrapeRequest):
             yield f"data: {json.dumps({'type': 'start', 'message': 'Starting scrape...', 'url': request.url})}\n\n"
 
             # 检测平台
-            platform = detect_platform(request.url)
-            yield f"data: {json.dumps({'type': 'platform', 'platform': platform})}\n\n"
+            try:
+                platform = detect_platform(request.url)
+                yield f"data: {json.dumps({'type': 'platform', 'platform': platform})}\n\n"
+            except ValueError as e:
+                # 平台不支持的错误，直接返回原始错误消息
+                yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
+                return
 
             # 创建爬取器 - 目前只支持GitHub
             if platform == 'github':
                 scraper = GitHubScraper()
             else:
-                yield f"data: {json.dumps({'type': 'error', 'message': f'As an individual developer with limited time, I have currently only launched GitHub user scraping. This is an open-source project, and you are welcome to contribute on GitHub. Thank you for your understanding and support! Currently unsupported platform: {platform}'})}\n\n"
+                platform_name = detect_platform_name(request.url)
+                error_msg = f"Oops! We don't support {platform_name} yet.\n\nI'm an individual developer, and currently only GitHub user scraping is available. This is an open-source project — contributions are welcome on GitHub! Thank you for your understanding and support."
+                yield f"data: {json.dumps({'type': 'error', 'message': error_msg})}\n\n"
                 return
 
             # 设置默认值
@@ -254,7 +304,7 @@ async def scrape_stream(request: ScrapeRequest):
                 yield f"data: {json.dumps(complete_data)}\n\n"
 
         except Exception as e:
-            error_msg = f"爬取过程中出错: {str(e)}"
+            error_msg = f"Oops! Something went wrong during scraping: {str(e)}"
             yield f"data: {json.dumps({'type': 'error', 'message': error_msg})}\n\n"
 
     return StreamingResponse(
@@ -282,7 +332,9 @@ async def scrape_and_download(request: ScrapeRequest):
         if platform == 'github':
             scraper = GitHubScraper()
         else:
-            raise HTTPException(status_code=400, detail="As an individual developer with limited time, I've currently only launched GitHub user scraping. This is an open-source project, and you're welcome to contribute on GitHub. Thank you for your understanding and support!")
+            platform_name = detect_platform_name(request.url)
+            error_msg = f"Oops! We don't support {platform_name} yet.\n\nI'm an individual developer, and currently only GitHub user scraping is available. This is an open-source project — contributions are welcome on GitHub! Thank you for your understanding and support."
+            raise HTTPException(status_code=400, detail=error_msg)
 
         # 设置默认值
         page = request.page or 1
@@ -298,7 +350,7 @@ async def scrape_and_download(request: ScrapeRequest):
         else:
             # 兼容旧版本，只支持第一页
             if page > 1:
-                raise HTTPException(status_code=400, detail="该平台暂不支持分页爬取")
+                raise HTTPException(status_code=400, detail="Oops! This platform doesn't support pagination yet")
             # 对于GitHub，使用默认参数
             result = await scraper.scrape(request.url)
             data = result if result else []
@@ -307,7 +359,7 @@ async def scrape_and_download(request: ScrapeRequest):
         print(f"第{page}页爬取完成，结果数量: {len(data)}")
 
         if not data or len(data) == 0:
-            raise HTTPException(status_code=404, detail="未找到数据或爬取失败")
+            raise HTTPException(status_code=404, detail="Oops! No data found or scraping failed")
 
         # 直接生成并返回CSV文件
         from urllib.parse import urlparse, quote
@@ -340,13 +392,13 @@ async def scrape_and_download(request: ScrapeRequest):
         print(f"Exception: {e}")
         import traceback
         traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"爬取失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Oops! Scraping failed: {str(e)}")
 
 @app.get("/api/export-csv/{cache_id}")
 async def export_csv(cache_id: str):
     """导出CSV文件"""
     if cache_id not in scrape_cache:
-        raise HTTPException(status_code=404, detail="数据未找到或已过期")
+        raise HTTPException(status_code=404, detail="Oops! Data not found or expired")
 
     cached_data = scrape_cache[cache_id]
     result = cached_data['data']
@@ -361,7 +413,9 @@ async def export_csv(cache_id: str):
     if platform == 'github':
         scraper = GitHubScraper()
     else:
-        raise HTTPException(status_code=400, detail="As an individual developer with limited time, I've currently only launched GitHub user scraping. This is an open-source project, and you're welcome to contribute on GitHub. Thank you for your understanding and support!")
+        # 对于导出CSV，不需要URL，所以使用通用错误消息
+        error_msg = f"Oops! We don't support {platform} yet.\n\nI'm an individual developer, and currently only GitHub user scraping is available. This is an open-source project — contributions are welcome on GitHub! Thank you for your understanding and support."
+        raise HTTPException(status_code=400, detail=error_msg)
 
     # 保存数据到CSV
     await scraper.save_to_csv(result, csv_path)

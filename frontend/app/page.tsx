@@ -126,7 +126,7 @@ export default function Home() {
     setAbortController(controller)
 
     try {
-      const response = await fetch('http://localhost:8000/api/scrape-stream', {
+      const response = await fetch('/api/scrape-stream', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -381,7 +381,7 @@ export default function Home() {
   return (
     <div className="min-h-screen bg-black relative">
         {/* Header */}
-      <header className="w-full border-b border-white/10 backdrop-blur-sm">
+      <header className="fixed top-0 left-0 right-0 w-full border-b border-white/10 backdrop-blur-sm bg-black/80 z-50">
         <div className="container mx-auto px-4 py-4">
           <div className="flex items-center justify-between">
             {/* Logo and Brand */}
@@ -419,7 +419,7 @@ export default function Home() {
       
       <div className="container mx-auto px-4 py-8 relative z-10">
         {/* Main Title */}
-        <div className="text-center mb-12 mt-16">
+        <div className="text-center mb-12 mt-24">
           <div className="mb-8">
             <h1 className="font-bold text-cyan-400 leading-relaxed">
               <div className="text-4xl md:text-5xl lg:text-6xl mb-3">Discover Who Follows Your Competitors</div>
@@ -562,14 +562,14 @@ export default function Home() {
           )}
 
           {error && (
-            <div className="mt-4 p-4 bg-red-500/20 border border-red-500/30 rounded-xl text-red-200">
+            <div className="mt-4 p-4 bg-yellow-500/20 border border-yellow-500/30 rounded-xl text-yellow-200">
               {error}
             </div>
           )}
         </div>
 
                 {/* Real-time scraping display area */}
-        {(streamingStatus.isStreaming || streamingData.length > 0) && (
+        {(streamingStatus.isStreaming || streamingData.length > 0 || totalFollowers >= 0) && (
           <div className="max-w-6xl mx-auto mb-8">
             {/* Progress bar display */}
             {streamingStatus.isStreaming && (
@@ -816,7 +816,7 @@ export default function Home() {
                   
                   {/* Pagination Controls */}
                   {!streamingStatus.isStreaming && totalPages >= 1 && (
-                    <div className="mt-12 flex items-center justify-between">
+                    <div className="mt-4 mb-8 mx-6 flex items-center justify-between">
                       <div className="text-sm text-blue-200">
                         Showing page {currentPage} of {totalPages} ({totalFollowers.toLocaleString()} total followers)
                       </div>

@@ -7,9 +7,11 @@ from .github.scrape_profiles import GitHubProfileScraper
 from .performance_config import PERFORMANCE_CONFIG, BROWSER_ARGS, OPTIMIZED_HEADERS
 from playwright.async_api import async_playwright
 from datetime import datetime
+import csv
+import re
 
 class GitHubTwoStageScraper(BaseScraper):
-    """GitHub两阶段爬取器 - 整合版本"""
+    """GitHub两阶段爬取器 - 优化版本"""
 
     def __init__(self, optimize_performance: bool = True):
         super().__init__()
@@ -76,43 +78,29 @@ class GitHubTwoStageScraper(BaseScraper):
         if actual_followers_count > 0:
             print(f"📊 Detected {actual_followers_count} followers for this user")
             
-            # Use standard mode for small datasets (< 500 followers)
-            if actual_followers_count < 500:
-                print(f"🚀 Using optimized standard mode for {actual_followers_count} followers")
-                async for result in self._scrape_with_progress_optimized(url, max_pages):
-                    yield result
-                return
+            # Auto-adjust pages based on actual followers count
+            if actual_followers_count > max_pages * 50:
+                recommended_pages = min((actual_followers_count + 49) // 50, 20)  # 最多20页
+                print(f"⚠️  User has {actual_followers_count} followers, but max_pages is {max_pages}")
+                print(f"📈 Recommending {recommended_pages} pages to get all followers")
+                print(f"🚀 Using optimized concurrent mode with {max_pages} pages (will get ~{max_pages * 50} followers)")
+            else:
+                print(f"🚀 Using optimized concurrent mode for {actual_followers_count} followers")
             
-            # Use unlimited mode only for large datasets
-            elif unlimited or max_users > actual_followers_count:
-                print(f"🚀 Using unlimited mode for {actual_followers_count} followers")
-                # Calculate appropriate max_pages based on actual followers
-                unlimited_pages = min((actual_followers_count + 49) // 50, 20)
-                async for result in self._scrape_with_progress_original(url, unlimited_pages):
-                    if result.get('type') == 'complete':
-                        result['unlimited_mode'] = 'true'
-                        result['target_users'] = str(min(max_users, actual_followers_count))
-                    yield result
-                return
+            async for result in self._scrape_with_progress_optimized(url, max_pages):
+                yield result
+            return
         
-        # Default to standard mode
-        print(f"🚀 Using standard mode (max_pages: {max_pages})")
-        async for result in self._scrape_with_progress_original(url, max_pages):
+        # Default to optimized mode
+        print(f"🚀 Using optimized concurrent mode (max_pages: {max_pages})")
+        async for result in self._scrape_with_progress_optimized(url, max_pages):
             yield result
-    
-    async def _scrape_with_progress_original(self, url: str, max_pages: int = 5):
-        """
-        执行完整的两阶段爬取流程，边爬边返回进度
 
-        Args:
-            url: GitHub URL
-            max_pages: 第一阶段最大爬取页数
-            max_users: 第二阶段最大处理用户数
-
-        Yields:
-            包含进度信息的字典
+    async def _scrape_with_progress_optimized(self, url: str, max_pages: int = 5):
         """
-        print(f"🚀 开始GitHub两阶段流式爬取: {url}")
+        优化版本的两阶段爬取流程，使用并发处理用户详细信息
+        """
+        print(f"🚀 开始GitHub两阶段并发爬取: {url}")
 
         # 发送开始消息
         yield {
@@ -127,8 +115,6 @@ class GitHubTwoStageScraper(BaseScraper):
         print(f"URL部分: {url_parts}")
 
         stage1_csv = ""
-
-        # 默认爬取所有页面，最多不超过max_pages
         calculated_pages = max_pages
         print(f"计算需要爬取 {calculated_pages} 页（最多{max_pages}页）")
 
@@ -154,7 +140,6 @@ class GitHubTwoStageScraper(BaseScraper):
 
             # 第一阶段：获取stargazers列表
             stage1_csv = await self.stage1_scraper.scrape_stargazers_list(owner, repo, calculated_pages)
-            # 对于stargazers，我们设置默认值
             total_followers = 0  # stargazers数量暂时设为0，因为没有实现获取总数的功能
             total_pages = 1
 
@@ -205,15 +190,13 @@ class GitHubTwoStageScraper(BaseScraper):
             'current_page': 1
         }
 
-        # 第二阶段：获取用户详细信息
-        # 检查是否有用户数据需要处理
+        # 第二阶段：使用并发获取用户详细信息
         has_users_to_process = False
         if os.path.exists(stage1_csv):
-            # 读取CSV文件来检查是否有用户数据
             try:
                 with open(stage1_csv, 'r', encoding='utf-8') as f:
                     lines = f.readlines()
-                    has_users_to_process = len(lines) > 1  # 除了header之外还有数据
+                    has_users_to_process = len(lines) > 1
             except Exception as e:
                 print(f"Error reading CSV file: {e}")
                 has_users_to_process = False
@@ -222,16 +205,12 @@ class GitHubTwoStageScraper(BaseScraper):
             yield {
                 'type': 'progress',
                 'stage': 2,
-                'message': f'Starting Stage 2: Getting detailed info for all scraped users...',
+                'message': f'Starting Stage 2: Getting detailed info with concurrent processing...',
                 'progress': 60
             }
 
-            # 使用带进度的第二阶段爬取（处理所有用户）
-            async for progress in self.stage2_scraper.scrape_profiles_from_csv_with_progress(
-                stage1_csv,
-                batch_size=5
-            ):
-                # 调整进度范围 60-95%
+            # 使用优化的并发处理
+            async for progress in self._scrape_profiles_concurrent(stage1_csv):
                 progress_value = progress.get('progress', 0)
                 if isinstance(progress_value, str):
                     progress_value = float(progress_value) if progress_value.replace('.', '').isdigit() else 0
@@ -256,7 +235,6 @@ class GitHubTwoStageScraper(BaseScraper):
 
             final_data = await self._read_enriched_data(stage1_csv.replace('_raw.csv', '_enriched.csv'))
         else:
-            # 对于没有用户数据的情况，跳过第二阶段，直接返回空结果
             yield {
                 'type': 'progress',
                 'stage': 2,
@@ -265,10 +243,13 @@ class GitHubTwoStageScraper(BaseScraper):
             }
             final_data = []
 
-        # 确定消息类型（followers还是stargazers）
+        # 确定消息类型
         is_user_followers = len(url_parts) >= 4 and len(url_parts) < 5
         if is_user_followers:
-            message = f'Scraping complete! Found {total_followers} total followers, retrieved detailed info for {len(final_data)} users'
+            if total_followers > len(final_data) and len(final_data) >= max_pages * 50:
+                message = f'Scraping complete! Found {total_followers} total followers, retrieved detailed info for {len(final_data)} users (limited by max_pages={max_pages}). Consider using Advanced Settings for more results.'
+            else:
+                message = f'Scraping complete! Found {total_followers} total followers, retrieved detailed info for {len(final_data)} users'
         else:
             message = f'Scraping complete! Retrieved detailed info for {len(final_data)} stargazers'
 
@@ -284,6 +265,379 @@ class GitHubTwoStageScraper(BaseScraper):
             'current_page': 1,
             'has_next_page': total_pages > 1
         }
+
+    async def _scrape_profiles_concurrent(self, csv_file_path: str, max_concurrent: int = 3):
+        """
+        并发获取用户详细信息的优化版本
+        """
+        print(f"🔍 开始并发获取用户详细信息: {csv_file_path}")
+        
+        # 读取用户列表
+        usernames = await self._read_usernames_from_csv(csv_file_path)
+        if not usernames:
+            yield {
+                'type': 'error',
+                'message': 'No username list found'
+            }
+            return
+
+        total_users = len(usernames)
+        print(f"将并发处理 {total_users} 个用户，并发数: {max_concurrent}")
+
+        yield {
+            'type': 'progress',
+            'message': f'Starting concurrent processing of {total_users} users',
+            'progress': 0,
+            'total_count': total_users,
+            'processed_count': 0
+        }
+
+        # 启动多个浏览器实例
+        playwright = await async_playwright().start()
+        browsers = []
+        pages = []
+        
+        try:
+            # 创建多个浏览器实例
+            for i in range(max_concurrent):
+                browser = await playwright.chromium.launch(
+                    headless=True,
+                    args=['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
+                )
+                browsers.append(browser)
+                
+                page = await browser.new_page()
+                await page.set_extra_http_headers({
+                    'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+                })
+                pages.append(page)
+
+            enriched_users = []
+            processed_count = 0
+            
+            # 创建任务队列
+            semaphore = asyncio.Semaphore(max_concurrent)
+            
+            async def process_user(username_data, page_index):
+                nonlocal processed_count
+                async with semaphore:
+                    username = username_data['username']
+                    page = pages[page_index % len(pages)]
+                    
+                    try:
+                        user_details = await self._get_user_details_optimized(username, page, username_data)
+                        if user_details:
+                            enriched_users.append(user_details)
+                            processed_count += 1
+                            yield {
+                                'type': 'user_completed',
+                                'message': f'✅ {username} ({processed_count}/{total_users})',
+                                'progress': (processed_count / total_users) * 100,
+                                'current_user': username,
+                                'total_count': total_users,
+                                'processed_count': processed_count
+                            }
+                        else:
+                            processed_count += 1
+                            yield {
+                                'type': 'user_failed',
+                                'message': f'❌ {username} ({processed_count}/{total_users})',
+                                'progress': (processed_count / total_users) * 100,
+                                'current_user': username,
+                                'total_count': total_users,
+                                'processed_count': processed_count
+                            }
+                    except Exception as e:
+                        processed_count += 1
+                        yield {
+                            'type': 'user_error',
+                            'message': f'Error {username}: {str(e)[:50]}...',
+                            'progress': (processed_count / total_users) * 100,
+                            'current_user': username,
+                            'total_count': total_users,
+                            'processed_count': processed_count
+                        }
+
+            # 并发处理用户
+            batch_size = 10  # 每批处理10个用户
+            for i in range(0, len(usernames), batch_size):
+                batch = usernames[i:i + batch_size]
+                tasks = []
+                
+                for j, username_data in enumerate(batch):
+                    task = process_user(username_data, j)
+                    tasks.append(task)
+                
+                # 等待当前批次完成
+                for task in tasks:
+                    async for result in task:
+                        yield result
+
+                # 批次间稍微暂停
+                if i + batch_size < len(usernames):
+                    await asyncio.sleep(0.5)
+
+            # 保存结果
+            yield {
+                'type': 'progress',
+                'message': f'Saving results for {len(enriched_users)} users...',
+                'progress': 95,
+                'total_count': total_users,
+                'processed_count': processed_count
+            }
+
+            output_file = await self._save_enriched_csv(enriched_users, csv_file_path)
+            
+            yield {
+                'type': 'complete',
+                'message': f'✅ Concurrent processing complete! {len(enriched_users)} users processed',
+                'progress': 100,
+                'total_count': total_users,
+                'processed_count': processed_count,
+                'output_file': output_file
+            }
+
+        finally:
+            # 关闭所有浏览器
+            for browser in browsers:
+                await browser.close()
+            await playwright.stop()
+
+    async def _get_user_details_optimized(self, username: str, page_obj, original_data: Dict) -> Dict:
+        """优化的用户详细信息获取方法"""
+        try:
+            # 访问用户主页 - 优化加载策略
+            user_url = f"https://github.com/{username}"
+            await page_obj.goto(user_url, wait_until='domcontentloaded', timeout=10000)
+            
+            # 减少等待时间
+            await page_obj.wait_for_timeout(500)
+
+            # 基础信息
+            user_info = {
+                'username': username,
+                'display_name': username,
+                'bio': '',
+                'avatar_url': f"https://github.com/{username}.png",
+                'profile_url': user_url,
+                'platform': 'github',
+                'type': 'follower',
+                'follower_count': 0,
+                'following_count': 0,
+                'company': '',
+                'location': '',
+                'website': '',
+                'twitter': '',
+                'email': '',
+                'public_repos': 0,
+                'scraped_at': datetime.now().isoformat(),
+                'source_user': original_data.get('source_user', ''),
+                'source_repo': original_data.get('source_repo', ''),
+                'page_number': original_data.get('page_number', ''),
+                'profile_scraped_at': datetime.now().isoformat()
+            }
+
+            # 并发获取各种信息
+            tasks = [
+                self._get_display_name(page_obj, user_info),
+                self._get_bio(page_obj, user_info),
+                self._get_follower_counts(page_obj, user_info),
+                self._get_company_location(page_obj, user_info),
+                self._get_website_email(page_obj, user_info),
+                self._get_repos_count(page_obj, user_info)
+            ]
+
+            await asyncio.gather(*tasks, return_exceptions=True)
+            return user_info
+
+        except Exception as e:
+            print(f"获取用户 {username} 详细信息失败: {e}")
+            # 返回基础信息而不是None
+            return {
+                'username': username,
+                'display_name': username,
+                'bio': '',
+                'avatar_url': f"https://github.com/{username}.png",
+                'profile_url': f"https://github.com/{username}",
+                'platform': 'github',
+                'type': 'follower',
+                'follower_count': 0,
+                'following_count': 0,
+                'company': '',
+                'location': '',
+                'website': '',
+                'twitter': '',
+                'email': '',
+                'public_repos': 0,
+                'scraped_at': datetime.now().isoformat(),
+                'source_user': original_data.get('source_user', ''),
+                'source_repo': original_data.get('source_repo', ''),
+                'page_number': original_data.get('page_number', ''),
+                'profile_scraped_at': datetime.now().isoformat()
+            }
+
+    async def _get_display_name(self, page_obj, user_info: Dict):
+        """获取显示名称"""
+        try:
+            name_element = await page_obj.query_selector('h1.vcard-names .p-name')
+            if name_element:
+                display_name = await name_element.text_content()
+                if display_name and display_name.strip():
+                    user_info['display_name'] = display_name.strip()
+        except:
+            pass
+
+    async def _get_bio(self, page_obj, user_info: Dict):
+        """获取bio"""
+        try:
+            bio_element = await page_obj.query_selector('.p-note .user-profile-bio')
+            if bio_element:
+                bio = await bio_element.text_content()
+                if bio and bio.strip():
+                    user_info['bio'] = bio.strip()
+        except:
+            pass
+
+    async def _get_follower_counts(self, page_obj, user_info: Dict):
+        """获取关注者数量"""
+        try:
+            follower_links = await page_obj.query_selector_all('.js-profile-editable-area a')
+            for link in follower_links:
+                href = await link.get_attribute('href')
+                text = await link.text_content()
+                if href and text:
+                    text = text.strip()
+                    if 'followers' in href:
+                        numbers = re.findall(r'\d+', text.replace(',', ''))
+                        if numbers:
+                            user_info['follower_count'] = int(numbers[0])
+                    elif 'following' in href:
+                        numbers = re.findall(r'\d+', text.replace(',', ''))
+                        if numbers:
+                            user_info['following_count'] = int(numbers[0])
+        except:
+            pass
+
+    async def _get_company_location(self, page_obj, user_info: Dict):
+        """获取公司和位置信息"""
+        try:
+            # 获取公司信息
+            company_selectors = [
+                '[data-test-selector="profile-company"] .p-org',
+                '.vcard-detail[itemprop="worksFor"] .p-org',
+                '.vcard-detail .p-org'
+            ]
+            for selector in company_selectors:
+                company_element = await page_obj.query_selector(selector)
+                if company_element:
+                    company = await company_element.text_content()
+                    if company and company.strip():
+                        user_info['company'] = company.strip()
+                        break
+
+            # 获取位置信息
+            location_selectors = [
+                '[data-test-selector="profile-location"] .p-label',
+                '.vcard-detail[itemprop="homeLocation"] .p-label',
+                '.vcard-detail .p-label'
+            ]
+            for selector in location_selectors:
+                location_element = await page_obj.query_selector(selector)
+                if location_element:
+                    location = await location_element.text_content()
+                    if location and location.strip():
+                        user_info['location'] = location.strip()
+                        break
+        except:
+            pass
+
+    async def _get_website_email(self, page_obj, user_info: Dict):
+        """获取网站和邮箱信息"""
+        try:
+            # 获取网站
+            website_element = await page_obj.query_selector('[data-test-selector="profile-website"] .Link--primary')
+            if website_element:
+                website = await website_element.get_attribute('href')
+                if website and website.strip():
+                    user_info['website'] = website.strip()
+
+            # 获取邮箱
+            itemprop_email = await page_obj.query_selector('li[itemprop="email"]')
+            if itemprop_email:
+                aria_label = await itemprop_email.get_attribute('aria-label')
+                if aria_label and 'Email:' in aria_label:
+                    email_match = aria_label.split('Email:', 1)
+                    if len(email_match) > 1:
+                        email = email_match[1].strip()
+                        if '@' in email and '.' in email:
+                            user_info['email'] = email
+        except:
+            pass
+
+    async def _get_repos_count(self, page_obj, user_info: Dict):
+        """获取仓库数量"""
+        try:
+            repos_element = await page_obj.query_selector('a[href$="?tab=repositories"] .Counter')
+            if repos_element:
+                repos_text = await repos_element.text_content()
+                if repos_text:
+                    repos_count = self._parse_count(repos_text.strip())
+                    user_info['public_repos'] = repos_count
+        except:
+            pass
+
+    async def _read_usernames_from_csv(self, csv_file_path: str) -> List[Dict[str, Any]]:
+        """读取CSV文件中的用户名列表"""
+        usernames = []
+        try:
+            with open(csv_file_path, 'r', encoding='utf-8') as csvfile:
+                reader = csv.DictReader(csvfile)
+                for row in reader:
+                    usernames.append({
+                        'username': row.get('username', ''),
+                        'source_user': row.get('source_user', ''),
+                        'source_repo': row.get('source_repo', ''),
+                        'page_number': row.get('page_number', ''),
+                        'scraped_at': row.get('scraped_at', '')
+                    })
+        except Exception as e:
+            print(f"Error reading usernames from CSV: {e}")
+        return usernames
+
+    async def _save_enriched_csv(self, users: List[Dict[str, Any]], original_csv_path: str) -> str:
+        """保存详细信息到CSV文件"""
+        output_file = original_csv_path.replace('_raw.csv', '_enriched.csv')
+        
+        try:
+            with open(output_file, 'w', newline='', encoding='utf-8') as csvfile:
+                if users:
+                    fieldnames = list(users[0].keys())
+                    writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+                    writer.writeheader()
+                    for user in users:
+                        writer.writerow(user)
+            print(f"保存详细信息到: {output_file}")
+            return output_file
+        except Exception as e:
+            print(f"Error saving enriched CSV: {e}")
+            return ""
+
+    def _parse_count(self, count_str: str) -> int:
+        """解析数量字符串"""
+        if not count_str:
+            return 0
+        
+        count_str = count_str.replace(',', '').lower()
+        
+        if 'k' in count_str:
+            return int(float(count_str.replace('k', '')) * 1000)
+        elif 'm' in count_str:
+            return int(float(count_str.replace('m', '')) * 1000000)
+        else:
+            try:
+                return int(count_str)
+            except:
+                return 0
 
     async def scrape(self, url: str, max_pages: int = 5) -> List[Dict[str, Any]]:
         """
@@ -357,8 +711,6 @@ class GitHubTwoStageScraper(BaseScraper):
 
     async def _read_enriched_data(self, csv_file_path: str) -> List[Dict[str, Any]]:
         """读取详细信息CSV文件并返回数据"""
-        import csv
-
         users = []
 
         try:
@@ -397,225 +749,6 @@ class GitHubTwoStageScraper(BaseScraper):
         """安全转换字符串为整数"""
         try:
             return int(value) if value else 0
-        except:
-            return 0
-
-    async def _get_user_details(self, username: str, page_obj) -> Dict:
-        """获取用户详细信息"""
-        try:
-            # 访问用户主页
-            user_url = f"https://github.com/{username}"
-            await page_obj.goto(user_url, wait_until='networkidle', timeout=15000)
-
-            # 等待页面加载
-            await page_obj.wait_for_timeout(1000)
-
-            # 提取用户信息
-            user_info = {
-                'username': username,
-                'display_name': username,
-                'bio': '',
-                'avatar_url': f"https://github.com/{username}.png",
-                'profile_url': user_url,
-                'platform': 'github',
-                'type': 'follower',
-                'follower_count': 0,
-                'following_count': 0,
-                'company': '',
-                'location': '',
-                'website': '',
-                'twitter': '',
-                'email': '',
-                'public_repos': 0,
-                'scraped_at': datetime.now().isoformat()
-            }
-
-            # 获取用户名和显示名
-            try:
-                name_element = await page_obj.query_selector('h1.vcard-names .p-name')
-                if name_element:
-                    display_name = await name_element.text_content()
-                    if display_name and display_name.strip():
-                        user_info['display_name'] = display_name.strip()
-            except:
-                pass
-
-            # 获取bio
-            try:
-                bio_element = await page_obj.query_selector('.p-note .user-profile-bio')
-                if bio_element:
-                    bio = await bio_element.text_content()
-                    if bio and bio.strip():
-                        user_info['bio'] = bio.strip()
-            except:
-                pass
-
-            # 获取follower和following数量 - 使用原scrape_profiles.py的成功方法
-            try:
-                import re
-                # 获取.js-profile-editable-area下的所有链接
-                follower_links = await page_obj.query_selector_all('.js-profile-editable-area a')
-                for link in follower_links:
-                    href = await link.get_attribute('href')
-                    text = await link.text_content()
-                    if href and text:
-                        text = text.strip()
-                        if 'followers' in href:
-                            numbers = re.findall(r'\d+', text.replace(',', ''))
-                            if numbers:
-                                user_info['follower_count'] = int(numbers[0])
-                                print(f"用户 {username} followers: {numbers[0]}")
-                        elif 'following' in href:
-                            numbers = re.findall(r'\d+', text.replace(',', ''))
-                            if numbers:
-                                user_info['following_count'] = int(numbers[0])
-                                print(f"用户 {username} following: {numbers[0]}")
-
-                # 如果上面的方法没有找到，尝试备用选择器
-                if user_info['follower_count'] == 0:
-                    # 调试：输出页面上所有包含followers的链接
-                    try:
-                        all_links = await page_obj.query_selector_all('a')
-                        for link in all_links:
-                            href = await link.get_attribute('href')
-                            text = await link.text_content()
-                            if href and 'followers' in href:
-                                print(f"找到followers链接: href={href}, text='{text}'")
-                                # 尝试从链接文本中提取数字
-                                if text:
-                                    numbers = re.findall(r'\d+', text.replace(',', ''))
-                                    if numbers:
-                                        user_info['follower_count'] = int(numbers[0])
-                                        print(f"备用方法获取到用户 {username} followers: {numbers[0]}")
-                                        break
-                            if href and 'following' in href:
-                                print(f"找到following链接: href={href}, text='{text}'")
-                                if text:
-                                    numbers = re.findall(r'\d+', text.replace(',', ''))
-                                    if numbers:
-                                        user_info['following_count'] = int(numbers[0])
-                                        print(f"备用方法获取到用户 {username} following: {numbers[0]}")
-                    except:
-                        pass
-
-            except Exception as e:
-                print(f"获取 {username} 关注数据失败: {e}")
-                pass
-
-            # 获取公司信息
-            try:
-                company_selectors = [
-                    '[data-test-selector="profile-company"] .p-org',
-                    '.vcard-detail[itemprop="worksFor"] .p-org',
-                    '.vcard-detail .p-org',
-                    '.js-profile-editable-area [data-test-selector="profile-company"]'
-                ]
-
-                for selector in company_selectors:
-                    company_element = await page_obj.query_selector(selector)
-                    if company_element:
-                        company = await company_element.text_content()
-                        if company and company.strip():
-                            user_info['company'] = company.strip()
-                            print(f"User {username} company: {company.strip()}")
-                            break
-            except Exception as e:
-                print(f"Failed to get user {username} company info: {e}")
-                pass
-
-            # 获取位置信息
-            try:
-                location_selectors = [
-                    '[data-test-selector="profile-location"] .p-label',
-                    '.vcard-detail[itemprop="homeLocation"] .p-label',
-                    '.vcard-detail .p-label',
-                    '.js-profile-editable-area [data-test-selector="profile-location"]'
-                ]
-
-                for selector in location_selectors:
-                    location_element = await page_obj.query_selector(selector)
-                    if location_element:
-                        location = await location_element.text_content()
-                        if location and location.strip():
-                            user_info['location'] = location.strip()
-                            print(f"User {username} location: {location.strip()}")
-                            break
-            except Exception as e:
-                print(f"Failed to get user {username} location info: {e}")
-                pass
-
-            # 获取邮箱信息，只保留 itemprop="email" aria-label 方式
-            try:
-                itemprop_email = await page_obj.query_selector('li[itemprop="email"]')
-                if itemprop_email:
-                    aria_label = await itemprop_email.get_attribute('aria-label')
-                    if aria_label and 'Email:' in aria_label:
-                        # 提取 "Email: xxx@xxx.com" 中的邮箱部分
-                        email_match = aria_label.split('Email:', 1)
-                        if len(email_match) > 1:
-                            email = email_match[1].strip()
-                            if '@' in email and '.' in email:
-                                user_info['email'] = email
-                                print(f"User {username} email (from itemprop): {email}")
-            except Exception as e:
-                print(f"Failed to get user {username} email info: {e}")
-                pass
-
-            # 获取网站
-            try:
-                website_element = await page_obj.query_selector('[data-test-selector="profile-website"] .Link--primary')
-                if website_element:
-                    website = await website_element.get_attribute('href')
-                    if website and website.strip():
-                        user_info['website'] = website.strip()
-            except:
-                pass
-
-            # 获取公开Repositories数量
-            try:
-                repos_element = await page_obj.query_selector('a[href$="?tab=repositories"] .Counter')
-                if repos_element:
-                    repos_text = await repos_element.text_content()
-                    if repos_text:
-                        repos_count = self._parse_count(repos_text.strip())
-                        user_info['public_repos'] = repos_count
-            except:
-                pass
-
-            return user_info
-
-        except Exception as e:
-            print(f"获取用户 {username} 详细信息失败: {e}")
-            # 返回基本信息
-            return {
-                'username': username,
-                'display_name': username,
-                'bio': '',
-                'avatar_url': f"https://github.com/{username}.png",
-                'profile_url': f"https://github.com/{username}",
-                'platform': 'github',
-                'type': 'follower',
-                'follower_count': 0,
-                'following_count': 0,
-                'company': '',
-                'location': '',
-                'website': '',
-                'twitter': '',
-                'email': '',
-                'public_repos': 0,
-                'scraped_at': datetime.now().isoformat()
-            }
-
-    def _parse_count(self, count_str: str) -> int:
-        """解析GitHub的数量显示（支持k, m等单位）"""
-        try:
-            count_str = count_str.lower().replace(',', '')
-            if 'k' in count_str:
-                return int(float(count_str.replace('k', '')) * 1000)
-            elif 'm' in count_str:
-                return int(float(count_str.replace('m', '')) * 1000000)
-            else:
-                return int(count_str)
         except:
             return 0
 
@@ -745,7 +878,7 @@ class GitHubTwoStageScraper(BaseScraper):
                     for i, username in enumerate(usernames):
                         try:
                             print(f"正在获取用户 {i+1}/{len(usernames)}: {username}")
-                            user_info = await self._get_user_details(username, page_obj)
+                            user_info = await self._get_user_details_optimized(username, page_obj, {'username': username, 'source_user': '', 'source_repo': '', 'page_number': str(page), 'scraped_at': datetime.now().isoformat()})
                             user_info['type'] = 'follower'
                             users.append(user_info)
                         except Exception as e:
@@ -823,7 +956,7 @@ class GitHubTwoStageScraper(BaseScraper):
                     await browser.close()
 
         except Exception as e:
-            print(f"爬取followers第{page}页时出错: {e}")
+            print(f"Error scraping followers page {page}: {e}")
             return {
                 'data': [],
                 'has_next_page': False,
@@ -881,7 +1014,7 @@ class GitHubTwoStageScraper(BaseScraper):
                     for i, username in enumerate(usernames):
                         try:
                             print(f"正在获取用户 {i+1}/{len(usernames)}: {username}")
-                            user_info = await self._get_user_details(username, page_obj)
+                            user_info = await self._get_user_details_optimized(username, page_obj, {'username': username, 'source_user': '', 'source_repo': f"{owner}/{repo}", 'page_number': str(page), 'scraped_at': datetime.now().isoformat()})
                             user_info['type'] = 'stargazer'
                             users.append(user_info)
                         except Exception as e:
@@ -959,172 +1092,11 @@ class GitHubTwoStageScraper(BaseScraper):
                     await browser.close()
 
         except Exception as e:
-            print(f"爬取stargazers第{page}页时出错: {e}")
+            print(f"Error scraping stargazers page {page}: {e}")
             return {
                 'data': [],
                 'has_next_page': False,
                 'current_page': page
-            }
-
-    async def _scrape_with_progress_optimized(self, url: str, max_pages: int = 5):
-        """Optimized version for small datasets with faster processing"""
-        print(f"🚀 Starting optimized GitHub scraping: {url}")
-
-        yield {
-            'type': 'progress',
-            'stage': 1,
-            'message': 'Starting optimized scraping for small dataset...',
-            'progress': 0
-        }
-
-        # Parse URL and get basic info
-        url_parts = url.rstrip('/').split('/')
-        stage1_csv = ""
-        
-        if len(url_parts) >= 4 and url_parts[3]:
-            username = url_parts[3]
-            if len(url_parts) == 4:  # User profile
-                print(f"识别为用户页面: {username}")
-                
-                yield {
-                    'type': 'progress',
-                    'stage': 1,
-                    'message': f'Scraping followers for user {username} (optimized)...',
-                    'progress': 10
-                }
-                
-                # Stage 1: Get followers list
-                stage1_result = await self.stage1_scraper.scrape_followers_list(username, max_pages)
-                if isinstance(stage1_result, dict):
-                    stage1_csv = stage1_result.get("csv_file", "")
-                    total_followers = stage1_result.get("total_followers", 0)
-                    total_pages = stage1_result.get("total_pages", 1)
-                else:
-                    stage1_csv = stage1_result or ""
-                    total_followers = 0
-                    total_pages = 1
-                
-                if not stage1_csv or not os.path.exists(stage1_csv):
-                    yield {
-                        'type': 'error',
-                        'message': 'Stage 1 failed, no user list file generated'
-                    }
-                    return
-                
-                yield {
-                    'type': 'progress',
-                    'stage': 1,
-                    'message': f'Stage 1 complete, found {total_followers} followers',
-                    'progress': 50,
-                    'total_followers': total_followers,
-                    'total_pages': total_pages,
-                    'current_page': 1
-                }
-                
-                # Stage 2: Get detailed profiles with optimized batch size for small datasets
-                has_users_to_process = False
-                if os.path.exists(stage1_csv):
-                    try:
-                        with open(stage1_csv, 'r', encoding='utf-8') as f:
-                            lines = f.readlines()
-                            has_users_to_process = len(lines) > 1
-                    except Exception as e:
-                        print(f"Error reading CSV file: {e}")
-                        has_users_to_process = False
-                
-                if has_users_to_process:
-                    yield {
-                        'type': 'progress',
-                        'stage': 2,
-                        'message': f'Stage 2: Getting detailed profiles (optimized for small dataset)...',
-                        'progress': 60
-                    }
-                    
-                    # Use smaller batch size for faster processing of small datasets
-                    optimized_batch_size = min(10, total_followers) if total_followers > 0 else 10
-                    
-                    async for progress in self.stage2_scraper.scrape_profiles_from_csv_with_progress(
-                        stage1_csv,
-                        batch_size=optimized_batch_size
-                    ):
-                        # Adjust progress range 60-95%
-                        progress_value = progress.get('progress', 0)
-                        if isinstance(progress_value, str):
-                            progress_value = float(progress_value) if progress_value.replace('.', '').isdigit() else 0
-                        adjusted_progress = 60 + (progress_value * 0.35)
-                        yield {
-                            'type': 'progress',
-                            'stage': 2,
-                            'message': progress.get('message', 'Processing user details...'),
-                            'progress': min(95, adjusted_progress),
-                            'current_user': progress.get('current_user', ''),
-                            'processed_count': progress.get('processed_count', 0),
-                            'total_count': progress.get('total_count', 0)
-                        }
-                    
-                    final_data = await self._read_enriched_data(stage1_csv.replace('_raw.csv', '_enriched.csv'))
-                else:
-                    yield {
-                        'type': 'progress',
-                        'stage': 2,
-                        'message': 'No users found, skipping detailed scraping...',
-                        'progress': 95
-                    }
-                    final_data = []
-                
-                # Complete
-                yield {
-                    'type': 'complete',
-                    'data': final_data,
-                    'total': len(final_data),
-                    'message': f'Optimized scraping complete! Found {total_followers} followers, retrieved {len(final_data)} detailed profiles',
-                    'progress': 100,
-                    'platform': 'github',
-                    'total_followers': total_followers,
-                    'total_pages': total_pages,
-                    'current_page': 1,
-                    'has_next_page': total_pages > 1
-                }
-                
-        # Handle repository stargazers
-        elif len(url_parts) >= 5 and url_parts[3] and url_parts[4]:
-            owner = url_parts[3]
-            repo = url_parts[4]
-            
-            yield {
-                'type': 'progress',
-                'stage': 1,
-                'message': f'Scraping stargazers for repository {owner}/{repo} (optimized)...',
-                'progress': 10
-            }
-            
-            stage1_csv = await self.stage1_scraper.scrape_stargazers_list(owner, repo, max_pages)
-            
-            if not stage1_csv:
-                yield {
-                    'type': 'error',
-                    'message': 'Stage 1 failed, no stargazers list generated'
-                }
-                return
-            
-            final_data = await self._read_enriched_data(stage1_csv.replace('_raw.csv', '_enriched.csv'))
-            
-            yield {
-                'type': 'complete',
-                'data': final_data,
-                'total': len(final_data),
-                'message': f'Optimized scraping complete! Retrieved {len(final_data)} stargazers',
-                'progress': 100,
-                'platform': 'github',
-                'total_followers': 0,
-                'total_pages': 1,
-                'current_page': 1,
-                'has_next_page': False
-            }
-        else:
-            yield {
-                'type': 'error',
-                'message': 'Unable to recognize URL type'
             }
 
 # 测试函数

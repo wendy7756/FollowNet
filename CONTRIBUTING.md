@@ -7,13 +7,11 @@ Thank you for your interest in contributing to FollowNet! We welcome contributio
 ### 1. Adding New Platform Support
 The most valuable contribution is adding support for new social media platforms. We currently support:
 - ✅ **GitHub** (Fully implemented)
-- 🔄 **Twitter/X** (Coming soon)
-- 🔄 **Instagram** (Coming soon)
-- 🔄 **LinkedIn** (Coming soon)
-- 🔄 **YouTube** (Coming soon)
-- 🔄 **TikTok** (Coming soon)
-- 🔄 **Reddit** (Coming soon)
-- 🔄 **Medium** (Coming soon)
+- 🔄 **Twitter/X** (Planned)
+- 🔄 **Instagram** (Planned)
+- 🔄 **LinkedIn** (Planned)
+- 🔄 **YouTube** (Planned)
+- 🔄 **Reddit** (Planned)
 
 ### 2. Other Ways to Contribute
 - 🐛 **Bug Reports**: Report issues and bugs
@@ -35,7 +33,7 @@ The most valuable contribution is adding support for new social media platforms.
 
 1. **Fork the repository**
    ```bash
-   git clone https://github.com/YOUR_USERNAME/FollowNet.git
+   git clone https://github.com/wendy7756/FollowNet.git
    cd FollowNet
    ```
 
