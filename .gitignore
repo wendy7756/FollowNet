@@ -49,9 +49,21 @@ temp/
 *.pyd
 __pycache__/
 .pytest_cache/
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
 
 # Playwright
 backend/playwright/
 test-results/
 
+# Data files
 data/
+*.csv
+
+# Test files
+test_*.py
+*_test.py
+debug_*.py

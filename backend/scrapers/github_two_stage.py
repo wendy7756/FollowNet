@@ -4,23 +4,103 @@ from typing import List, Dict, Any
 from .base import BaseScraper
 from .github.get_followers_list import GitHubFollowersListScraper
 from .github.scrape_profiles import GitHubProfileScraper
+from .performance_config import PERFORMANCE_CONFIG, BROWSER_ARGS, OPTIMIZED_HEADERS
 from playwright.async_api import async_playwright
 from datetime import datetime
 
 class GitHubTwoStageScraper(BaseScraper):
     """GitHub两阶段爬取器 - 整合版本"""
 
-    def __init__(self):
+    def __init__(self, optimize_performance: bool = True):
         super().__init__()
         self.platform = "github"
         self.stage1_scraper = GitHubFollowersListScraper()
         self.stage2_scraper = GitHubProfileScraper()
+        self.optimize_performance = optimize_performance
+        self.perf_config = PERFORMANCE_CONFIG if optimize_performance else None
 
     def get_current_time(self) -> str:
         """获取当前时间的ISO格式字符串"""
         return datetime.now().isoformat()
 
-    async def scrape_with_progress(self, url: str, max_pages: int = 5, max_users: int = 100):
+    async def scrape_with_progress(self, url: str, max_pages: int = 5, max_users: int = 0, unlimited: bool = False):
+        """Enhanced scrape method with intelligent mode selection"""
+        
+        # First, do a quick check to get the actual followers count
+        url_parts = url.rstrip('/').split('/')
+        actual_followers_count = 0
+        
+        if len(url_parts) >= 4 and url_parts[3]:
+            username = url_parts[3]
+            if len(url_parts) == 4:  # User profile
+                try:
+                    # Quick check to get actual followers count
+                    playwright = await async_playwright().start()
+                    browser = await playwright.chromium.launch(headless=True)
+                    page = await browser.new_page()
+                    
+                    profile_url = f"https://github.com/{username}"
+                    await page.goto(profile_url, wait_until="domcontentloaded", timeout=30000)
+                    
+                    # Try to get followers count quickly
+                    followers_selectors = [
+                        'a[href$="tab=followers"] .text-bold',
+                        'a[href*="followers"] .Counter',
+                        'a[href*="followers"] span'
+                    ]
+                    
+                    for selector in followers_selectors:
+                        try:
+                            followers_element = await page.query_selector(selector)
+                            if followers_element:
+                                followers_text = await followers_element.text_content()
+                                if followers_text and followers_text.strip():
+                                    followers_text = followers_text.strip().replace(',', '')
+                                    if 'k' in followers_text.lower():
+                                        actual_followers_count = int(float(followers_text.lower().replace('k', '')) * 1000)
+                                    elif 'm' in followers_text.lower():
+                                        actual_followers_count = int(float(followers_text.lower().replace('m', '')) * 1000000)
+                                    else:
+                                        actual_followers_count = int(followers_text)
+                                    break
+                        except:
+                            continue
+                    
+                    await browser.close()
+                    await playwright.stop()
+                except Exception as e:
+                    print(f"Quick followers check failed: {e}")
+                    actual_followers_count = 0
+        
+        # Smart mode selection based on actual data size
+        if actual_followers_count > 0:
+            print(f"📊 Detected {actual_followers_count} followers for this user")
+            
+            # Use standard mode for small datasets (< 500 followers)
+            if actual_followers_count < 500:
+                print(f"🚀 Using optimized standard mode for {actual_followers_count} followers")
+                async for result in self._scrape_with_progress_optimized(url, max_pages):
+                    yield result
+                return
+            
+            # Use unlimited mode only for large datasets
+            elif unlimited or max_users > actual_followers_count:
+                print(f"🚀 Using unlimited mode for {actual_followers_count} followers")
+                # Calculate appropriate max_pages based on actual followers
+                unlimited_pages = min((actual_followers_count + 49) // 50, 20)
+                async for result in self._scrape_with_progress_original(url, unlimited_pages):
+                    if result.get('type') == 'complete':
+                        result['unlimited_mode'] = 'true'
+                        result['target_users'] = str(min(max_users, actual_followers_count))
+                    yield result
+                return
+        
+        # Default to standard mode
+        print(f"🚀 Using standard mode (max_pages: {max_pages})")
+        async for result in self._scrape_with_progress_original(url, max_pages):
+            yield result
+    
+    async def _scrape_with_progress_original(self, url: str, max_pages: int = 5):
         """
         执行完整的两阶段爬取流程，边爬边返回进度
 
@@ -38,7 +118,7 @@ class GitHubTwoStageScraper(BaseScraper):
         yield {
             'type': 'progress',
             'stage': 1,
-            'message': '分析URL和准备爬取...',
+            'message': 'Analyzing URL and preparing to scrape...',
             'progress': 0
         }
 
@@ -48,14 +128,14 @@ class GitHubTwoStageScraper(BaseScraper):
 
         stage1_csv = ""
 
-        # 根据max_users计算需要的页数（GitHub每页大约50个用户）
-        calculated_pages = max(1, min(max_pages, (max_users + 49) // 50))
-        print(f"根据max_users={max_users}，计算需要爬取 {calculated_pages} 页")
+        # 默认爬取所有页面，最多不超过max_pages
+        calculated_pages = max_pages
+        print(f"计算需要爬取 {calculated_pages} 页（最多{max_pages}页）")
 
         yield {
             'type': 'progress',
             'stage': 1,
-            'message': f'准备爬取 {calculated_pages} 页用户列表...',
+            'message': f'Preparing to scrape {calculated_pages} pages of user list...',
             'progress': 5
         }
 
@@ -68,12 +148,15 @@ class GitHubTwoStageScraper(BaseScraper):
             yield {
                 'type': 'progress',
                 'stage': 1,
-                'message': f'正在爬取仓库 {owner}/{repo} 的stargazers...',
+                'message': f'Scraping stargazers for repository {owner}/{repo}...',
                 'progress': 10
             }
 
             # 第一阶段：获取stargazers列表
             stage1_csv = await self.stage1_scraper.scrape_stargazers_list(owner, repo, calculated_pages)
+            # 对于stargazers，我们设置默认值
+            total_followers = 0  # stargazers数量暂时设为0，因为没有实现获取总数的功能
+            total_pages = 1
 
         elif len(url_parts) >= 4 and url_parts[3]:
             # 用户URL: https://github.com/username
@@ -83,87 +166,132 @@ class GitHubTwoStageScraper(BaseScraper):
             yield {
                 'type': 'progress',
                 'stage': 1,
-                'message': f'正在爬取用户 {username} 的followers...',
+                'message': f'Scraping followers for user {username}...',
                 'progress': 10
             }
 
             # 第一阶段：获取followers列表
-            stage1_csv = await self.stage1_scraper.scrape_followers_list(username, calculated_pages)
+            stage1_result = await self.stage1_scraper.scrape_followers_list(username, calculated_pages)
+            if isinstance(stage1_result, dict):
+                stage1_csv = stage1_result.get("csv_file", "")
+                total_followers = stage1_result.get("total_followers", 0)
+                total_pages = stage1_result.get("total_pages", 1)
+            else:
+                stage1_csv = stage1_result or ""
+                total_followers = 0
+                total_pages = 1
 
         else:
             yield {
                 'type': 'error',
-                'message': '无法识别URL类型'
+                'message': 'Unable to recognize URL type'
             }
             return
 
         if not stage1_csv or not os.path.exists(stage1_csv):
             yield {
                 'type': 'error',
-                'message': '第一阶段失败，没有生成用户列表文件'
+                'message': 'Stage 1 failed, no user list file generated'
             }
             return
 
         yield {
             'type': 'progress',
             'stage': 1,
-            'message': f'第一阶段完成，生成文件: {os.path.basename(stage1_csv)}',
-            'progress': 50
+            'message': f'Stage 1 complete, generated file: {os.path.basename(stage1_csv)}',
+            'progress': 50,
+            'total_followers': total_followers,
+            'total_pages': total_pages,
+            'current_page': 1
         }
 
         # 第二阶段：获取用户详细信息
-        yield {
-            'type': 'progress',
-            'stage': 2,
-            'message': f'开始第二阶段：获取最多 {max_users} 个用户的详细信息...',
-            'progress': 60
-        }
+        # 检查是否有用户数据需要处理
+        has_users_to_process = False
+        if os.path.exists(stage1_csv):
+            # 读取CSV文件来检查是否有用户数据
+            try:
+                with open(stage1_csv, 'r', encoding='utf-8') as f:
+                    lines = f.readlines()
+                    has_users_to_process = len(lines) > 1  # 除了header之外还有数据
+            except Exception as e:
+                print(f"Error reading CSV file: {e}")
+                has_users_to_process = False
 
-        # 使用带进度的第二阶段爬取
-        async for progress in self.stage2_scraper.scrape_profiles_from_csv_with_progress(
-            stage1_csv,
-            max_users=max_users,
-            batch_size=5
-        ):
-            # 调整进度范围 60-95%
-            adjusted_progress = 60 + (progress.get('progress', 0) * 0.35)
+        if has_users_to_process:
             yield {
                 'type': 'progress',
                 'stage': 2,
-                'message': progress.get('message', '处理用户详细信息...'),
-                'progress': min(95, adjusted_progress),
-                'current_user': progress.get('current_user', ''),
-                'processed_count': progress.get('processed_count', 0),
-                'total_count': progress.get('total_count', 0)
+                'message': f'Starting Stage 2: Getting detailed info for all scraped users...',
+                'progress': 60
             }
 
-        # 读取最终结果
-        yield {
-            'type': 'progress',
-            'stage': 2,
-            'message': '读取最终结果...',
-            'progress': 95
-        }
+            # 使用带进度的第二阶段爬取（处理所有用户）
+            async for progress in self.stage2_scraper.scrape_profiles_from_csv_with_progress(
+                stage1_csv,
+                batch_size=5
+            ):
+                # 调整进度范围 60-95%
+                progress_value = progress.get('progress', 0)
+                if isinstance(progress_value, str):
+                    progress_value = float(progress_value) if progress_value.replace('.', '').isdigit() else 0
+                adjusted_progress = 60 + (progress_value * 0.35)
+                yield {
+                    'type': 'progress',
+                    'stage': 2,
+                    'message': progress.get('message', 'Processing user details...'),
+                    'progress': min(95, adjusted_progress),
+                    'current_user': progress.get('current_user', ''),
+                    'processed_count': progress.get('processed_count', 0),
+                    'total_count': progress.get('total_count', 0)
+                }
 
-        final_data = await self._read_enriched_data(stage1_csv.replace('_raw.csv', '_enriched.csv'))
+            # 读取最终结果
+            yield {
+                'type': 'progress',
+                'stage': 2,
+                'message': 'Reading final results...',
+                'progress': 95
+            }
+
+            final_data = await self._read_enriched_data(stage1_csv.replace('_raw.csv', '_enriched.csv'))
+        else:
+            # 对于没有用户数据的情况，跳过第二阶段，直接返回空结果
+            yield {
+                'type': 'progress',
+                'stage': 2,
+                'message': 'No users found, skipping detailed scraping...',
+                'progress': 95
+            }
+            final_data = []
+
+        # 确定消息类型（followers还是stargazers）
+        is_user_followers = len(url_parts) >= 4 and len(url_parts) < 5
+        if is_user_followers:
+            message = f'Scraping complete! Found {total_followers} total followers, retrieved detailed info for {len(final_data)} users'
+        else:
+            message = f'Scraping complete! Retrieved detailed info for {len(final_data)} stargazers'
 
         yield {
             'type': 'complete',
             'data': final_data,
             'total': len(final_data),
-            'message': f'爬取完成！共获取 {len(final_data)} 个用户的详细信息',
+            'message': message,
             'progress': 100,
-            'platform': 'github'
+            'platform': 'github',
+            'total_followers': total_followers if is_user_followers else len(final_data),
+            'total_pages': total_pages,
+            'current_page': 1,
+            'has_next_page': total_pages > 1
         }
 
-    async def scrape(self, url: str, max_pages: int = 5, max_users: int = 100) -> List[Dict[str, Any]]:
+    async def scrape(self, url: str, max_pages: int = 5) -> List[Dict[str, Any]]:
         """
         执行完整的两阶段爬取流程
 
         Args:
             url: GitHub URL
             max_pages: 第一阶段最大爬取页数
-            max_users: 第二阶段最大处理用户数
 
         Returns:
             包含详细信息的用户列表
@@ -176,9 +304,9 @@ class GitHubTwoStageScraper(BaseScraper):
 
         stage1_csv = ""
 
-        # 根据max_users计算需要的页数（GitHub每页大约50个用户）
-        calculated_pages = max(1, min(max_pages, (max_users + 49) // 50))  # 向上取整，但不超过max_pages
-        print(f"根据max_users={max_users}，计算需要爬取 {calculated_pages} 页")
+        # 默认爬取所有页面，最多不超过max_pages
+        calculated_pages = max_pages
+        print(f"计算需要爬取 {calculated_pages} 页（最多{max_pages}页）")
 
         if len(url_parts) >= 5 and url_parts[3] and url_parts[4]:
             # RepositoriesURL: https://github.com/owner/repo
@@ -195,7 +323,11 @@ class GitHubTwoStageScraper(BaseScraper):
             print(f"识别为用户页面: {username}")
 
             # 第一阶段：获取followers列表
-            stage1_csv = await self.stage1_scraper.scrape_followers_list(username, calculated_pages)
+            stage1_result = await self.stage1_scraper.scrape_followers_list(username, calculated_pages)
+            if isinstance(stage1_result, dict):
+                stage1_csv = stage1_result.get("csv_file", "")
+            else:
+                stage1_csv = stage1_result or ""
 
         else:
             print("无法识别URL类型")
@@ -211,7 +343,6 @@ class GitHubTwoStageScraper(BaseScraper):
         print("🔍 开始第二阶段：获取用户详细信息...")
         stage2_csv = await self.stage2_scraper.scrape_profiles_from_csv(
             stage1_csv,
-            max_users=max_users,
             batch_size=5  # 小批次处理，避免过载
         )
 
@@ -835,6 +966,167 @@ class GitHubTwoStageScraper(BaseScraper):
                 'current_page': page
             }
 
+    async def _scrape_with_progress_optimized(self, url: str, max_pages: int = 5):
+        """Optimized version for small datasets with faster processing"""
+        print(f"🚀 Starting optimized GitHub scraping: {url}")
+
+        yield {
+            'type': 'progress',
+            'stage': 1,
+            'message': 'Starting optimized scraping for small dataset...',
+            'progress': 0
+        }
+
+        # Parse URL and get basic info
+        url_parts = url.rstrip('/').split('/')
+        stage1_csv = ""
+        
+        if len(url_parts) >= 4 and url_parts[3]:
+            username = url_parts[3]
+            if len(url_parts) == 4:  # User profile
+                print(f"识别为用户页面: {username}")
+                
+                yield {
+                    'type': 'progress',
+                    'stage': 1,
+                    'message': f'Scraping followers for user {username} (optimized)...',
+                    'progress': 10
+                }
+                
+                # Stage 1: Get followers list
+                stage1_result = await self.stage1_scraper.scrape_followers_list(username, max_pages)
+                if isinstance(stage1_result, dict):
+                    stage1_csv = stage1_result.get("csv_file", "")
+                    total_followers = stage1_result.get("total_followers", 0)
+                    total_pages = stage1_result.get("total_pages", 1)
+                else:
+                    stage1_csv = stage1_result or ""
+                    total_followers = 0
+                    total_pages = 1
+                
+                if not stage1_csv or not os.path.exists(stage1_csv):
+                    yield {
+                        'type': 'error',
+                        'message': 'Stage 1 failed, no user list file generated'
+                    }
+                    return
+                
+                yield {
+                    'type': 'progress',
+                    'stage': 1,
+                    'message': f'Stage 1 complete, found {total_followers} followers',
+                    'progress': 50,
+                    'total_followers': total_followers,
+                    'total_pages': total_pages,
+                    'current_page': 1
+                }
+                
+                # Stage 2: Get detailed profiles with optimized batch size for small datasets
+                has_users_to_process = False
+                if os.path.exists(stage1_csv):
+                    try:
+                        with open(stage1_csv, 'r', encoding='utf-8') as f:
+                            lines = f.readlines()
+                            has_users_to_process = len(lines) > 1
+                    except Exception as e:
+                        print(f"Error reading CSV file: {e}")
+                        has_users_to_process = False
+                
+                if has_users_to_process:
+                    yield {
+                        'type': 'progress',
+                        'stage': 2,
+                        'message': f'Stage 2: Getting detailed profiles (optimized for small dataset)...',
+                        'progress': 60
+                    }
+                    
+                    # Use smaller batch size for faster processing of small datasets
+                    optimized_batch_size = min(10, total_followers) if total_followers > 0 else 10
+                    
+                    async for progress in self.stage2_scraper.scrape_profiles_from_csv_with_progress(
+                        stage1_csv,
+                        batch_size=optimized_batch_size
+                    ):
+                        # Adjust progress range 60-95%
+                        progress_value = progress.get('progress', 0)
+                        if isinstance(progress_value, str):
+                            progress_value = float(progress_value) if progress_value.replace('.', '').isdigit() else 0
+                        adjusted_progress = 60 + (progress_value * 0.35)
+                        yield {
+                            'type': 'progress',
+                            'stage': 2,
+                            'message': progress.get('message', 'Processing user details...'),
+                            'progress': min(95, adjusted_progress),
+                            'current_user': progress.get('current_user', ''),
+                            'processed_count': progress.get('processed_count', 0),
+                            'total_count': progress.get('total_count', 0)
+                        }
+                    
+                    final_data = await self._read_enriched_data(stage1_csv.replace('_raw.csv', '_enriched.csv'))
+                else:
+                    yield {
+                        'type': 'progress',
+                        'stage': 2,
+                        'message': 'No users found, skipping detailed scraping...',
+                        'progress': 95
+                    }
+                    final_data = []
+                
+                # Complete
+                yield {
+                    'type': 'complete',
+                    'data': final_data,
+                    'total': len(final_data),
+                    'message': f'Optimized scraping complete! Found {total_followers} followers, retrieved {len(final_data)} detailed profiles',
+                    'progress': 100,
+                    'platform': 'github',
+                    'total_followers': total_followers,
+                    'total_pages': total_pages,
+                    'current_page': 1,
+                    'has_next_page': total_pages > 1
+                }
+                
+        # Handle repository stargazers
+        elif len(url_parts) >= 5 and url_parts[3] and url_parts[4]:
+            owner = url_parts[3]
+            repo = url_parts[4]
+            
+            yield {
+                'type': 'progress',
+                'stage': 1,
+                'message': f'Scraping stargazers for repository {owner}/{repo} (optimized)...',
+                'progress': 10
+            }
+            
+            stage1_csv = await self.stage1_scraper.scrape_stargazers_list(owner, repo, max_pages)
+            
+            if not stage1_csv:
+                yield {
+                    'type': 'error',
+                    'message': 'Stage 1 failed, no stargazers list generated'
+                }
+                return
+            
+            final_data = await self._read_enriched_data(stage1_csv.replace('_raw.csv', '_enriched.csv'))
+            
+            yield {
+                'type': 'complete',
+                'data': final_data,
+                'total': len(final_data),
+                'message': f'Optimized scraping complete! Retrieved {len(final_data)} stargazers',
+                'progress': 100,
+                'platform': 'github',
+                'total_followers': 0,
+                'total_pages': 1,
+                'current_page': 1,
+                'has_next_page': False
+            }
+        else:
+            yield {
+                'type': 'error',
+                'message': 'Unable to recognize URL type'
+            }
+
 # 测试函数
 async def test_two_stage_scraper():
     """测试两阶段爬取器"""
@@ -842,7 +1134,7 @@ async def test_two_stage_scraper():
 
     # 测试用户followers
     print("=== 测试用户followers爬取 ===")
-    users = await scraper.scrape("https://github.com/connor4312", max_pages=2, max_users=20)
+    users = await scraper.scrape("https://github.com/connor4312", max_pages=2)
     print(f"获取到 {len(users)} 个用户的详细信息")
 
     if users:

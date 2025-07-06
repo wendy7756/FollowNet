@@ -3,4 +3,5 @@ uvicorn==0.24.0
 playwright==1.40.0
 python-multipart==0.0.6
 aiofiles==23.2.1
-pydantic==2.5.0 
+pydantic==2.5.0
+aiohttp==3.12.13 

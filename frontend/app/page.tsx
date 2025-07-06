@@ -1,7 +1,8 @@
 'use client'
 
 import { useState, useMemo } from 'react'
-import { Github, Twitter, Download, Users, Building, MapPin, Globe, ExternalLink, Mail, ArrowUpDown, ArrowUp, ArrowDown, Search, Star } from 'lucide-react'
+import Link from 'next/link'
+import { Github, Twitter, Download, Users, Building, MapPin, Globe, ExternalLink, Mail, ArrowUpDown, ArrowUp, ArrowDown, Search, Star, Settings, X, ChevronDown, User } from 'lucide-react'
 import {
   Table,
   TableBody,
@@ -40,6 +41,8 @@ interface ScrapeResult {
   current_page: number
   has_next_page: boolean
   cache_id: string
+  total_followers?: number
+  total_pages?: number
 }
 
 type SortField = 'follower_count' | 'following_count' | 'public_repos' | 'scraped_at' | 'username'
@@ -48,10 +51,17 @@ type SortOrder = 'asc' | 'desc'
 export default function Home() {
   const [url, setUrl] = useState('')
   const [error, setError] = useState('')
-  const [maxUsers, setMaxUsers] = useState(10)
+  const [maxUsers, setMaxUsers] = useState<number>(250)
+  const [unlimitedMode, setUnlimitedMode] = useState<boolean>(false)
+  const [showAdvancedSettings, setShowAdvancedSettings] = useState<boolean>(false)
+
   const [streamingData, setStreamingData] = useState<UserData[]>([])
   const [sortField, setSortField] = useState<SortField>('follower_count')
   const [sortOrder, setSortOrder] = useState<SortOrder>('desc')
+  const [totalFollowers, setTotalFollowers] = useState<number>(-1)
+  const [totalPages, setTotalPages] = useState<number>(1)
+  const [currentPage, setCurrentPage] = useState<number>(1)
+  const [hasNextPage, setHasNextPage] = useState<boolean>(false)
   const [streamingStatus, setStreamingStatus] = useState<{
     isStreaming: boolean
     progress: number
@@ -65,6 +75,8 @@ export default function Home() {
     progress: 0,
     message: ''
   })
+  
+  const [abortController, setAbortController] = useState<AbortController | null>(null)
 
   const detectPlatform = (inputUrl: string) => {
     const url = inputUrl.toLowerCase()
@@ -87,6 +99,18 @@ export default function Home() {
     await handleStreamingScrape()
   }
 
+  const handleStopScraping = () => {
+    if (abortController) {
+      abortController.abort()
+      setAbortController(null)
+      setStreamingStatus({
+        isStreaming: false,
+        progress: 0,
+        message: 'Scraping stopped by user'
+      })
+    }
+  }
+
   const handleStreamingScrape = async () => {
     if (!url.trim()) return
 
@@ -95,8 +119,11 @@ export default function Home() {
     setStreamingStatus({
       isStreaming: true,
       progress: 0,
-      message: '正在连接...'
+      message: 'Connecting...'
     })
+
+    const controller = new AbortController()
+    setAbortController(controller)
 
     try {
       const response = await fetch('http://localhost:8000/api/scrape-stream', {
@@ -107,17 +134,19 @@ export default function Home() {
         body: JSON.stringify({
           url: url.trim(),
           page: 1,
-          max_users: maxUsers
+          max_users: unlimitedMode ? maxUsers : 0,
+          unlimited: unlimitedMode
         }),
+        signal: controller.signal
       })
 
       if (!response.ok) {
-        throw new Error('网络请求失败')
+        throw new Error('Network request failed')
       }
 
       const reader = response.body?.getReader()
       if (!reader) {
-        throw new Error('无法读取响应流')
+        throw new Error('Unable to read response stream')
       }
 
       const decoder = new TextDecoder()
@@ -151,6 +180,16 @@ export default function Home() {
                     processedCount: data.processed_count,
                     totalCount: data.total_count
                   }))
+                  // Update pagination info if available
+                  if (data.total_followers !== undefined) {
+                    setTotalFollowers(data.total_followers)
+                  }
+                  if (data.total_pages !== undefined) {
+                    setTotalPages(data.total_pages)
+                  }
+                  if (data.current_page !== undefined) {
+                    setCurrentPage(data.current_page)
+                  }
                   break
 
                 case 'user_completed':
@@ -169,11 +208,25 @@ export default function Home() {
 
                 case 'complete':
                   setStreamingData(data.data || [])
+                  // Update pagination info from complete response
+                  if (data.total_followers !== undefined) {
+                    setTotalFollowers(data.total_followers)
+                  }
+                  if (data.total_pages !== undefined) {
+                    setTotalPages(data.total_pages)
+                  }
+                  if (data.current_page !== undefined) {
+                    setCurrentPage(data.current_page)
+                  }
+                  if (data.has_next_page !== undefined) {
+                    setHasNextPage(data.has_next_page)
+                  }
                   setStreamingStatus({
                     isStreaming: false,
                     progress: 100,
                     message: data.message
                   })
+                  setAbortController(null)
                   break
 
                 case 'error':
@@ -183,22 +236,28 @@ export default function Home() {
                     progress: 0,
                     message: ''
                   })
+                  setAbortController(null)
                   break
               }
             } catch (e) {
-              console.error('解析数据时出错:', e)
+              console.error('Error parsing data:', e)
             }
           }
         }
       }
     } catch (err) {
-      console.error('流式爬取错误:', err)
-      setError('网络错误，请稍后重试')
+      console.error('Streaming scrape error:', err)
+      if (err instanceof Error && err.name === 'AbortError') {
+        // Request was aborted, don't show error message
+        return
+      }
+      setError('Network error, please try again later')
       setStreamingStatus({
         isStreaming: false,
         progress: 0,
         message: ''
       })
+      setAbortController(null)
     }
   }
 
@@ -320,21 +379,57 @@ export default function Home() {
   )
 
   return (
-    <div className="min-h-screen bg-linear-to-br from-slate-900 via-blue-900 to-slate-900">
-      <div className="container mx-auto px-4 py-8">
+    <div className="min-h-screen bg-black relative">
         {/* Header */}
-        <div className="text-center mb-12">
-          <div className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-linear-to-r from-blue-500 to-purple-600 mb-6">
-            <span className="text-3xl font-bold text-white">F</span>
+      <header className="w-full border-b border-white/10 backdrop-blur-sm">
+        <div className="container mx-auto px-4 py-4">
+          <div className="flex items-center justify-between">
+            {/* Logo and Brand */}
+            <div className="flex items-center gap-3">
+              <img 
+                src="/favicon/favicon-96x96.png" 
+                alt="FollowNet Logo" 
+                className="w-10 h-10 rounded-full shadow-lg"
+              />
+              <span className="text-xl font-bold text-white">FollowNet</span>
           </div>
-          <h1 className="text-5xl font-bold text-white mb-4">FollowNet</h1>
-          <p className="text-xl text-blue-200 max-w-2xl mx-auto">
-            One-click scraping of social media platform follower data, supporting pagination and data export
-          </p>
+            
+            {/* Action Buttons */}
+            <div className="flex items-center gap-2 sm:gap-4">
+              <button
+                onClick={() => window.open('https://github.com/wendy7756/FollowNet', '_blank')}
+                className="flex items-center gap-2 px-3 sm:px-4 py-2 border border-white/30 rounded-lg bg-transparent text-white hover:bg-white/10 transition-all duration-200"
+              >
+                <Github className="w-4 h-4" />
+                <span className="text-xs sm:text-sm font-medium hidden sm:inline">Star on Github</span>
+                <span className="text-xs font-medium sm:hidden">Star</span>
+              </button>
+              <button
+                onClick={() => window.location.href = 'mailto:kimiao777@outlook.com'}
+                className="flex items-center gap-2 px-3 sm:px-4 py-2 border border-white/30 rounded-lg bg-transparent text-white hover:bg-white/10 transition-all duration-200"
+              >
+                <Mail className="w-4 h-4" />
+                <span className="text-xs sm:text-sm font-medium hidden sm:inline">Contact</span>
+                <span className="text-xs font-medium sm:hidden">Email</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </header>
+      
+      <div className="container mx-auto px-4 py-8 relative z-10">
+        {/* Main Title */}
+        <div className="text-center mb-12 mt-16">
+          <div className="mb-8">
+            <h1 className="font-bold text-cyan-400 leading-relaxed">
+              <div className="text-4xl md:text-5xl lg:text-6xl mb-3">Discover Who Follows Your Competitors</div>
+              <div className="text-3xl md:text-4xl lg:text-5xl">Turn Them Into Your Customers</div>
+            </h1>
+          </div>
         </div>
 
-        {/* 搜索表单 */}
-        <div className="max-w-4xl mx-auto mb-12">
+        {/* Search form */}
+        <div className="max-w-6xl mx-auto mb-12">
           <form onSubmit={handleSubmit} className="relative">
             <div className="relative">
               <input
@@ -342,7 +437,7 @@ export default function Home() {
                 value={url}
                 onChange={(e) => setUrl(e.target.value)}
                 placeholder="Enter URL to scrape, e.g.: https://github.com/username"
-                className={`w-full px-6 py-4 text-lg bg-white/10 backdrop-blur-xs border border-white/20 rounded-2xl text-white placeholder-blue-200 focus:outline-hidden focus:ring-2 focus:ring-blue-400 focus:border-transparent ${
+                className={`w-full px-6 py-4 text-lg bg-white/10 backdrop-blur-sm border border-white/20 rounded-2xl text-white placeholder-blue-200 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-transparent ${
                   detectedPlatform ? 'pr-48' : 'pr-32'
                 }`}
                 disabled={streamingStatus.isStreaming}
@@ -360,49 +455,111 @@ export default function Home() {
               <button
                 type="submit"
                 disabled={streamingStatus.isStreaming || !url.trim()}
-                className="absolute right-2 top-1/2 transform -translate-y-1/2 px-4 py-2 bg-linear-to-r from-blue-500 to-purple-600 text-white rounded-xl hover:from-blue-600 hover:to-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 text-sm font-medium"
+                className="absolute right-2 top-1/2 transform -translate-y-1/2 px-4 py-2 bg-gradient-to-r from-blue-500 to-purple-600 text-white rounded-xl hover:from-blue-600 hover:to-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 text-sm font-medium"
               >
-                {streamingStatus.isStreaming ? '爬取中...' : '开始爬取'}
+                {streamingStatus.isStreaming ? 'Scraping...' : 'Start'}
               </button>
             </div>
           </form>
 
-          {/* 设置选项 */}
-          <div className="mt-6 bg-white/10 backdrop-blur-xs border border-white/20 rounded-2xl p-6">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-6">
-                <label className="text-white font-medium">最大用户数:</label>
-                <select
-                  value={maxUsers}
-                  onChange={(e) => setMaxUsers(Number(e.target.value))}
-                  disabled={streamingStatus.isStreaming}
-                  className="px-4 py-2 bg-white/10 border border-white/20 rounded-lg text-white focus:outline-hidden focus:ring-2 focus:ring-blue-400 disabled:opacity-50"
-                  style={{ colorScheme: 'dark' }}
-                >
-                  <option value={5} className="bg-slate-800 text-white">5 用户</option>
-                  <option value={10} className="bg-slate-800 text-white">10 用户</option>
-                  <option value={20} className="bg-slate-800 text-white">20 用户</option>
-                  <option value={50} className="bg-slate-800 text-white">50 用户</option>
-                  <option value={100} className="bg-slate-800 text-white">100 用户</option>
-                </select>
+          {/* Advanced Settings Toggle */}
+          <div className="mt-3 flex justify-center">
+            <button
+              onClick={() => setShowAdvancedSettings(!showAdvancedSettings)}
+              className="flex items-center gap-2 text-gray-300 hover:text-blue-300 text-sm transition-colors duration-200"
+              disabled={streamingStatus.isStreaming}
+            >
+              <Settings className="w-4 h-4" />
+              <span>Advanced Settings</span>
+              <ChevronDown 
+                className={`w-4 h-4 transition-transform duration-200 ${showAdvancedSettings ? 'rotate-180' : ''}`} 
+              />
+            </button>
+          </div>
+
+          {/* Advanced Settings Panel */}
+          {showAdvancedSettings && (
+            <div className="mt-4 bg-white/10 backdrop-blur-sm border border-white/20 rounded-2xl p-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {/* Unlimited Mode Toggle */}
+                <div className="space-y-3">
+                  <label className="flex items-center gap-3 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={unlimitedMode}
+                      onChange={(e) => setUnlimitedMode(e.target.checked)}
+                      className="w-5 h-5 rounded border-white/20 bg-white/10 text-blue-500 focus:ring-blue-500 focus:ring-offset-0"
+                      disabled={streamingStatus.isStreaming}
+                    />
+                    <div>
+                      <span className="text-white font-medium">Unlimited Mode</span>
+                      <p className="text-blue-200 text-sm">Scrape more than 250 followers with high performance</p>
+                    </div>
+                  </label>
+                </div>
+
+                {/* Max Users Input */}
+                {unlimitedMode && (
+                  <div className="space-y-2">
+                    <label className="block text-white font-medium">
+                      Maximum Users to Scrape
+                    </label>
+                    <input
+                      type="number"
+                      value={maxUsers}
+                      onChange={(e) => setMaxUsers(Math.max(1, parseInt(e.target.value) || 250))}
+                      min="1"
+                      max="5000"
+                      step="50"
+                      className="w-full px-4 py-2 bg-white/10 border border-white/20 rounded-lg text-white placeholder-blue-200 focus:outline-none focus:ring-2 focus:ring-blue-400"
+                      disabled={streamingStatus.isStreaming}
+                    />
+                    <p className="text-blue-200 text-sm">
+                      Recommended: 500-1000 for optimal performance
+                    </p>
+                  </div>
+                )}
               </div>
 
-              {/* 导出按钮 */}
+              {/* Performance Info */}
+              {unlimitedMode && (
+                <div className="mt-4 p-4 bg-blue-500/20 border border-blue-500/30 rounded-lg">
+                  <h4 className="text-blue-200 font-medium mb-2">🚀 Performance Mode Active</h4>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+                    <div>
+                      <span className="text-blue-300">Expected Speed:</span>
+                      <span className="text-white ml-2">5-8x faster</span>
+                    </div>
+                    <div>
+                      <span className="text-blue-300">Concurrency:</span>
+                      <span className="text-white ml-2">20 users parallel</span>
+                    </div>
+                    <div>
+                      <span className="text-blue-300">Memory Usage:</span>
+                      <span className="text-white ml-2">30% optimized</span>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Export button */}
               {streamingData.length > 0 && (
+            <div className="mt-4 flex justify-center">
                 <button
                   onClick={() => {
                     const csvContent = generateCSV(sortedStreamingData)
                     downloadCSV(csvContent, `follownet_${detectedPlatform || 'data'}_sorted_by_${sortField}_${sortOrder}_${new Date().toISOString().split('T')[0]}.csv`)
                   }}
                   disabled={streamingStatus.isStreaming}
-                  className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-green-500 to-green-600 text-white rounded-xl hover:from-green-600 hover:to-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200"
+                className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-green-500 to-green-600 text-white rounded-xl hover:from-green-600 hover:to-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 text-sm"
                 >
                   <Download className="w-4 h-4" />
-                  导出CSV ({streamingData.length} 用户)
+                Export CSV ({streamingData.length} users)
                 </button>
-              )}
             </div>
-          </div>
+          )}
 
           {error && (
             <div className="mt-4 p-4 bg-red-500/20 border border-red-500/30 rounded-xl text-red-200">
@@ -411,29 +568,39 @@ export default function Home() {
           )}
         </div>
 
-                {/* 实时爬取显示区域 */}
+                {/* Real-time scraping display area */}
         {(streamingStatus.isStreaming || streamingData.length > 0) && (
-          <div className="max-w-7xl mx-auto mb-8">
-            {/* 进度条显示 */}
+          <div className="max-w-6xl mx-auto mb-8">
+            {/* Progress bar display */}
             {streamingStatus.isStreaming && (
-              <div className="bg-white/10 backdrop-blur-xs border border-white/20 rounded-2xl p-6 mb-6">
-                <div className="flex items-center gap-4 mb-4">
-                  <div className="animate-spin w-6 h-6 border-2 border-blue-400 border-t-transparent rounded-full"></div>
-                  <h2 className="text-xl font-semibold text-white">实时爬取中</h2>
+              <div className="bg-white/10 backdrop-blur-sm border border-white/20 rounded-2xl p-6 mb-6">
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center gap-4">
+                    <div className="animate-spin w-6 h-6 border-2 border-blue-400 border-t-transparent rounded-full"></div>
+                    <h2 className="text-xl font-semibold text-white">Real-time Scraping</h2>
+                  </div>
+                  <button
+                    onClick={handleStopScraping}
+                    className="flex items-center gap-2 px-4 py-2 bg-red-500/20 border border-red-500/30 rounded-lg text-red-300 hover:bg-red-500/30 hover:text-red-200 transition-all duration-200"
+                    title="Stop scraping"
+                  >
+                    <X className="w-4 h-4" />
+                    <span className="text-sm font-medium">Stop</span>
+                  </button>
                 </div>
 
                 <div className="mb-4">
                   <div className="flex justify-between items-center mb-2">
                     <span className="text-blue-200 text-sm">
-                      {streamingStatus.stage && `阶段 ${streamingStatus.stage}: `}
+                      {streamingStatus.stage && `Stage ${streamingStatus.stage}: `}
                       {streamingStatus.message}
-                      {streamingStatus.currentUser && ` - 当前用户: ${streamingStatus.currentUser}`}
+                      {streamingStatus.currentUser && ` - Current user: ${streamingStatus.currentUser}`}
                     </span>
                     <span className="text-blue-400 font-medium text-sm">{Math.round(streamingStatus.progress)}%</span>
                   </div>
                   <div className="w-full bg-white/20 rounded-full h-3">
                     <div
-                      className="bg-linear-to-r from-blue-500 to-purple-600 h-3 rounded-full transition-all duration-300"
+                      className="bg-gradient-to-r from-blue-500 to-purple-600 h-3 rounded-full transition-all duration-300"
                       style={{ width: `${streamingStatus.progress}%` }}
                     ></div>
                   </div>
@@ -441,35 +608,43 @@ export default function Home() {
 
                 {streamingStatus.processedCount !== undefined && streamingStatus.totalCount !== undefined && (
                   <div className="text-sm text-blue-200">
-                    已处理: <span className="text-blue-400 font-medium">{streamingStatus.processedCount}/{streamingStatus.totalCount}</span> 用户
+                    Processed: <span className="text-blue-400 font-medium">{streamingStatus.processedCount}/{streamingStatus.totalCount}</span> users
                     {streamingData.length > 0 && (
-                      <span className="ml-4">已获取详细信息: <span className="text-green-400 font-medium">{streamingData.length}</span> 用户</span>
+                      <span className="ml-4">Detailed info obtained: <span className="text-green-400 font-medium">{streamingData.length}</span> users</span>
                     )}
+                  </div>
+                )}
+                
+                {/* Pagination info */}
+                {totalFollowers >= 0 && !streamingStatus.isStreaming && (
+                  <div className="text-sm text-blue-200 mt-2">
+                    <span className="text-blue-400 font-medium">Progress:</span> Page {currentPage} of {totalPages}
+                    <span className="ml-4 text-blue-300">Total followers: <span className="text-blue-400 font-medium">{totalFollowers.toLocaleString()}</span></span>
                   </div>
                 )}
               </div>
             )}
 
-            {/* 实时用户数据显示 */}
-            {streamingData.length > 0 && (
+            {/* Real-time user data display */}
+            {(!streamingStatus.isStreaming && totalFollowers >= 0) && (
               <>
                 <div className="bg-white/10 backdrop-blur-sm border border-white/20 rounded-2xl p-6 mb-6">
                   <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
                     <div>
                       <h2 className="text-xl font-semibold text-white mb-2">
-                        爬取结果 (<span className="text-blue-400">{streamingData.length}</span> 用户)
-                        {streamingStatus.isStreaming && <span className="text-green-400 ml-2 animate-pulse">持续更新中...</span>}
-                        {!streamingStatus.isStreaming && <span className="text-green-400 ml-2">✓ 完成</span>}
+                        Scraping Results (<span className="text-blue-400">{streamingData.length}</span> users)
+                        {streamingStatus.isStreaming && <span className="text-green-400 ml-2 animate-pulse">Updating...</span>}
+                        {!streamingStatus.isStreaming && <span className="text-green-400 ml-2">✓ Complete</span>}
                       </h2>
                       {!streamingStatus.isStreaming && (
                         <p className="text-blue-300 text-sm">
-                          当前排序: {sortField === 'follower_count' && '关注者数量'}
-                          {sortField === 'following_count' && '关注中数量'}
-                          {sortField === 'public_repos' && '仓库数量'}
-                          {sortField === 'scraped_at' && '爬取时间'}
-                          {sortField === 'username' && '用户名'}
+                          Current sort: {sortField === 'follower_count' && 'Followers'}
+                          {sortField === 'following_count' && 'Following'}
+                          {sortField === 'public_repos' && 'Repositories'}
+                          {sortField === 'scraped_at' && 'Scraped time'}
+                          {sortField === 'username' && 'Username'}
                           <span className="ml-1">
-                            ({sortOrder === 'desc' ? '从高到低' : '从低到高'})
+                            ({sortOrder === 'desc' ? 'High to Low' : 'Low to High'})
                           </span>
                         </p>
                       )}
@@ -479,32 +654,31 @@ export default function Home() {
                   </div>
                 </div>
 
-                                                {/* 用户数据表格 */}
+                                                {/* User data table */}
                 <div className="bg-white/10 backdrop-blur-sm border border-white/20 rounded-2xl overflow-hidden">
                   <div className="overflow-x-auto">
                     <Table className="min-w-[800px]">
                       <TableHeader>
                         <TableRow className="border-white/20 hover:bg-white/5">
-                          <TableHead className="text-blue-200 font-medium">头像</TableHead>
+                          <TableHead className="text-blue-200 font-medium">Avatar</TableHead>
                           <SortableTableHead field="username" className="text-blue-200 font-medium">
-                            用户信息
+                            User Info
                           </SortableTableHead>
-                          <TableHead className="text-blue-200 font-medium">简介</TableHead>
-                          <SortableTableHead field="follower_count" className="text-blue-200 font-medium text-right">
-                            关注者
+                          <TableHead className="text-blue-200 font-medium">Bio</TableHead>
+                          <SortableTableHead field="follower_count" className="text-blue-200 font-medium">
+                            Followers
                           </SortableTableHead>
-                          <SortableTableHead field="following_count" className="text-blue-200 font-medium text-right">
-                            关注中
+                          <SortableTableHead field="following_count" className="text-blue-200 font-medium">
+                            Following
                           </SortableTableHead>
-                          <SortableTableHead field="public_repos" className="text-blue-200 font-medium text-right">
-                            仓库
+                          <SortableTableHead field="public_repos" className="text-blue-200 font-medium">
+                            Repos
                           </SortableTableHead>
-                          <TableHead className="text-blue-200 font-medium">位置/公司</TableHead>
-                          <TableHead className="text-blue-200 font-medium">操作</TableHead>
+                          <TableHead className="text-blue-200 font-medium">Actions</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {sortedStreamingData.map((user, index) => (
+                        {streamingData.length > 0 ? sortedStreamingData.map((user, index) => (
                           <TableRow
                             key={`${user.username}-${index}`}
                             className="border-white/20 hover:bg-white/5 cursor-pointer animate-fade-in"
@@ -534,7 +708,7 @@ export default function Home() {
                                   </span>
                                   {index < 3 && streamingStatus.isStreaming && (
                                     <span className="px-2 py-1 bg-green-500/20 text-green-400 text-xs rounded-full animate-pulse">
-                                      新增
+                                      New
                                     </span>
                                   )}
                                 </div>
@@ -546,16 +720,16 @@ export default function Home() {
                               </div>
                             </TableCell>
 
-                            {/* 简介 */}
+                            {/* Bio */}
                             <TableCell>
                               <div className="text-blue-100 text-sm max-w-[200px] truncate">
                                 {user.bio || '-'}
                               </div>
                             </TableCell>
 
-                            {/* 关注者数 */}
-                            <TableCell className="text-right">
-                              <div className={`flex items-center justify-end gap-1 ${
+                            {/* Followers count */}
+                            <TableCell>
+                              <div className={`flex items-center gap-1 ${
                                 sortField === 'follower_count' ? 'text-blue-300 font-medium' : 'text-blue-200'
                               }`}>
                                 <Users className="w-4 h-4 text-blue-400" />
@@ -563,9 +737,9 @@ export default function Home() {
                               </div>
                             </TableCell>
 
-                            {/* 关注中数 */}
-                            <TableCell className="text-right">
-                              <div className={`flex items-center justify-end gap-1 ${
+                            {/* Following count */}
+                            <TableCell>
+                              <div className={`flex items-center gap-1 ${
                                 sortField === 'following_count' ? 'text-blue-300 font-medium' : 'text-blue-200'
                               }`}>
                                 <Users className="w-4 h-4 text-green-400" />
@@ -573,9 +747,9 @@ export default function Home() {
                               </div>
                             </TableCell>
 
-                            {/* 仓库数 */}
-                            <TableCell className="text-right">
-                              <div className={`flex items-center justify-end gap-1 ${
+                            {/* Repository count */}
+                            <TableCell>
+                              <div className={`flex items-center gap-1 ${
                                 sortField === 'public_repos' ? 'text-blue-300 font-medium' : 'text-blue-200'
                               }`}>
                                 <Github className="w-4 h-4 text-gray-400" />
@@ -583,28 +757,7 @@ export default function Home() {
                               </div>
                             </TableCell>
 
-                            {/* 位置/公司 */}
-                            <TableCell>
-                              <div className="space-y-1 text-sm">
-                                {user.location && (
-                                  <div className="flex items-center gap-1 text-blue-200">
-                                    <MapPin className="w-3 h-3 text-orange-400" />
-                                    <span className="truncate max-w-[100px]">{user.location}</span>
-                                  </div>
-                                )}
-                                {user.company && (
-                                  <div className="flex items-center gap-1 text-blue-200">
-                                    <Building className="w-3 h-3 text-purple-400" />
-                                    <span className="truncate max-w-[100px]">{user.company}</span>
-                                  </div>
-                                )}
-                                {!user.location && !user.company && (
-                                  <span className="text-gray-500">-</span>
-                                )}
-                              </div>
-                            </TableCell>
-
-                            {/* 操作 */}
+                            {/* Actions */}
                             <TableCell>
                               <div className="flex items-center gap-2">
                                 <button
@@ -613,9 +766,9 @@ export default function Home() {
                                     handleUserClick(user.profile_url)
                                   }}
                                   className="p-1 rounded hover:bg-white/10 transition-colors"
-                                  title="访问用户主页"
+                                  title="Visit user profile"
                                 >
-                                  <ExternalLink className="w-4 h-4 text-blue-400" />
+                                  <Github className="w-4 h-4 text-blue-400" />
                                 </button>
                                 {user.email && (
                                   <button
@@ -624,7 +777,7 @@ export default function Home() {
                                       window.location.href = `mailto:${user.email}`
                                     }}
                                     className="p-1 rounded hover:bg-white/10 transition-colors"
-                                    title="发送邮件"
+                                    title="Send email"
                                   >
                                     <Mail className="w-4 h-4 text-red-400" />
                                   </button>
@@ -636,7 +789,7 @@ export default function Home() {
                                       window.open(user.website, '_blank')
                                     }}
                                     className="p-1 rounded hover:bg-white/10 transition-colors"
-                                    title="访问网站"
+                                    title="Visit website"
                                   >
                                     <Globe className="w-4 h-4 text-teal-400" />
                                   </button>
@@ -644,10 +797,60 @@ export default function Home() {
                               </div>
                             </TableCell>
                           </TableRow>
-                        ))}
+                        )) : (
+                          <TableRow>
+                            <TableCell colSpan={7} className="text-center py-12">
+                              <div className="text-blue-200">
+                                <Users className="w-12 h-12 mx-auto mb-4 text-blue-400" />
+                                <p className="text-lg font-medium">No followers found</p>
+                                <p className="text-sm text-blue-300 mt-2">
+                                  This user has {totalFollowers} followers
+                                </p>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        )}
                       </TableBody>
                     </Table>
                   </div>
+                  
+                  {/* Pagination Controls */}
+                  {!streamingStatus.isStreaming && totalPages >= 1 && (
+                    <div className="mt-12 flex items-center justify-between">
+                      <div className="text-sm text-blue-200">
+                        Showing page {currentPage} of {totalPages} ({totalFollowers.toLocaleString()} total followers)
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => {
+                            if (currentPage > 1) {
+                              // TODO: Implement previous page functionality
+                              console.log('Previous page clicked')
+                            }
+                          }}
+                          disabled={currentPage <= 1 || streamingStatus.isStreaming}
+                          className="px-4 py-2 bg-white/10 border border-white/20 rounded-lg text-white text-sm hover:bg-white/20 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200"
+                        >
+                          Previous
+                        </button>
+                        <span className="px-3 py-2 text-blue-200 text-sm">
+                          Page {currentPage}
+                        </span>
+                        <button
+                          onClick={() => {
+                            if (currentPage < totalPages) {
+                              // TODO: Implement next page functionality
+                              console.log('Next page clicked')
+                            }
+                          }}
+                          disabled={currentPage >= totalPages || streamingStatus.isStreaming}
+                          className="px-4 py-2 bg-white/10 border border-white/20 rounded-lg text-white text-sm hover:bg-white/20 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200"
+                        >
+                          Next
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </>
             )}
@@ -656,53 +859,202 @@ export default function Home() {
 
 
 
-        {/* 平台展示 - 只在没有结果且不在爬取时显示 */}
-        {!streamingStatus.isStreaming && streamingData.length === 0 && (
-          <div className="max-w-6xl mx-auto">
-            <h3 className="text-2xl font-bold text-white text-center mb-8">支持的平台</h3>
-            <div className="grid md:grid-cols-3 gap-6 mb-8">
-              <div className="bg-linear-to-br from-gray-700 to-gray-900 p-8 rounded-3xl shadow-2xl hover:scale-105 transition-all duration-300">
-                <div className="flex items-center justify-center w-16 h-16 bg-white/20 rounded-2xl mb-6 mx-auto">
-                  <Github className="w-8 h-8 text-white" />
+        {/* Platform display - only show when no results and not scraping */}
+        {!streamingStatus.isStreaming && totalFollowers < 0 && (
+          <div className="max-w-6xl mx-auto mt-16">
+            <h3 className="text-3xl font-bold text-white text-center mb-12">Supported Platforms</h3>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+              {/* 第一排 */}
+                             {/* GitHub */}
+               <div className="bg-white/10 backdrop-blur-sm border border-white/20 rounded-2xl p-6 text-center">
+                <div className="w-16 h-16 mx-auto mb-4 rounded-full overflow-hidden flex items-center justify-center">
+                  <img 
+                    src="/logos/github.png" 
+                    alt="GitHub" 
+                    className="w-12 h-12 object-contain"
+                    onError={(e) => {
+                      e.currentTarget.style.display = 'none';
+                      const fallback = e.currentTarget.nextElementSibling as HTMLElement;
+                      if (fallback) fallback.style.display = 'block';
+                    }}
+                  />
+                  <Github className="w-8 h-8 text-white hidden" />
                 </div>
-                <h3 className="text-2xl font-bold text-white text-center mb-3">GitHub</h3>
-                <p className="text-white/80 text-center text-sm">Repositories Star 用户 & 用户关注者</p>
+                <h4 className="text-xl font-bold text-white mb-3">GitHub</h4>
+                <p className="text-gray-300 text-sm leading-relaxed">
+                  Find developers who starred repositories or follow specific users.
+                </p>
               </div>
 
-              <div className="bg-linear-to-br from-blue-400 to-blue-600 p-8 rounded-3xl shadow-2xl hover:scale-105 transition-all duration-300">
-                <div className="flex items-center justify-center w-16 h-16 bg-white/20 rounded-2xl mb-6 mx-auto">
-                  <Twitter className="w-8 h-8 text-white" />
+                             {/* Twitter/X */}
+               <div className="bg-white/10 backdrop-blur-sm border border-white/20 rounded-2xl p-6 text-center relative">
+                <div className="absolute top-2 right-2 bg-blue-500/70 text-white text-xs px-2 py-1 rounded-full">
+                  Coming soon
                 </div>
-                <h3 className="text-2xl font-bold text-white text-center mb-3">Twitter/X</h3>
-                <p className="text-white/80 text-center text-sm">用户关注者 & 关注列表</p>
+                <div className="w-16 h-16 mx-auto mb-4 rounded-full overflow-hidden flex items-center justify-center">
+                  <img 
+                    src="/logos/twitter.png" 
+                    alt="Twitter/X" 
+                    className="w-12 h-12 object-contain"
+                    onError={(e) => {
+                      e.currentTarget.style.display = 'none';
+                      const fallback = e.currentTarget.nextElementSibling as HTMLElement;
+                      if (fallback) fallback.style.display = 'block';
+                    }}
+                  />
+                  <Twitter className="w-8 h-8 text-white hidden" />
+                </div>
+                <h4 className="text-xl font-bold text-white mb-3">Twitter/X</h4>
+                <p className="text-gray-300 text-sm leading-relaxed">
+                  Discover people who follow your industry rivals or key topics.
+                </p>
               </div>
 
-              <div className="bg-linear-to-br from-orange-400 to-orange-600 p-8 rounded-3xl shadow-2xl hover:scale-105 transition-all duration-300">
-                <div className="flex items-center justify-center w-16 h-16 bg-white/20 rounded-2xl mb-6 mx-auto">
-                  <Users className="w-8 h-8 text-white" />
+              {/* YouTube */}
+              <div className="bg-white/10 backdrop-blur-sm border border-white/20 rounded-2xl p-6 text-center relative">
+                <div className="absolute top-2 right-2 bg-blue-500/70 text-white text-xs px-2 py-1 rounded-full">
+                  Coming soon
                 </div>
-                <h3 className="text-2xl font-bold text-white text-center mb-3">Product Hunt</h3>
-                <p className="text-white/80 text-center text-sm">产品投票者数据</p>
+                <div className="w-16 h-16 mx-auto mb-4 rounded-full overflow-hidden flex items-center justify-center">
+                  <img 
+                    src="/logos/youtube.png" 
+                    alt="YouTube" 
+                    className="w-12 h-12 object-contain"
+                    onError={(e) => {
+                      e.currentTarget.style.display = 'none';
+                      const fallback = e.currentTarget.nextElementSibling as HTMLElement;
+                      if (fallback) fallback.style.display = 'block';
+                    }}
+                  />
+                  <Globe className="w-8 h-8 text-white hidden" />
               </div>
+                <h4 className="text-xl font-bold text-white mb-3">YouTube</h4>
+                <p className="text-gray-300 text-sm leading-relaxed">
+                  Engage with subscribers of your competitors' channels.
+                </p>
             </div>
 
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-              {[
-                { name: 'Weibo', color: 'from-red-400 to-red-600' },
-                { name: 'Hacker News', color: 'from-orange-500 to-yellow-500' },
-                { name: 'YouTube', color: 'from-red-500 to-red-700' },
-                { name: 'Reddit', color: 'from-orange-600 to-red-600' },
-                { name: 'Medium', color: 'from-green-400 to-green-600' },
-                { name: 'Bilibili', color: 'from-pink-400 to-pink-600' }
-              ].map((platform) => (
-                <div key={platform.name} className={`bg-linear-to-br ${platform.color} p-6 rounded-2xl shadow-lg hover:scale-105 transition-all duration-300`}>
-                  <h4 className="text-lg font-semibold text-white text-center">{platform.name}</h4>
+              {/* 第二排 */}
+              {/* Instagram */}
+              <div className="bg-white/10 backdrop-blur-sm border border-white/20 rounded-2xl p-6 text-center relative">
+                <div className="absolute top-2 right-2 bg-blue-500/70 text-white text-xs px-2 py-1 rounded-full">
+                  Coming soon
                 </div>
-              ))}
+                <div className="w-16 h-16 mx-auto mb-4 rounded-full overflow-hidden flex items-center justify-center">
+                  <img 
+                    src="/logos/instagram.png" 
+                    alt="Instagram" 
+                    className="w-12 h-12 object-contain"
+                    onError={(e) => {
+                      e.currentTarget.style.display = 'none';
+                      const fallback = e.currentTarget.nextElementSibling as HTMLElement;
+                      if (fallback) fallback.style.display = 'block';
+                    }}
+                  />
+                  <Users className="w-8 h-8 text-white hidden" />
+                </div>
+                <h4 className="text-xl font-bold text-white mb-3">Instagram</h4>
+                <p className="text-gray-300 text-sm leading-relaxed">
+                  Reach audiences following brands, creators, or competitors on Ins.
+                </p>
+              </div>
+
+              {/* Reddit */}
+              <div className="bg-white/10 backdrop-blur-sm border border-white/20 rounded-2xl p-6 text-center relative">
+                <div className="absolute top-2 right-2 bg-blue-500/70 text-white text-xs px-2 py-1 rounded-full">
+                  Coming soon
+                </div>
+                <div className="w-16 h-16 mx-auto mb-4 rounded-full overflow-hidden flex items-center justify-center">
+                  <img 
+                    src="/logos/reddit.png" 
+                    alt="Reddit" 
+                    className="w-12 h-12 object-contain"
+                    onError={(e) => {
+                      e.currentTarget.style.display = 'none';
+                      const fallback = e.currentTarget.nextElementSibling as HTMLElement;
+                      if (fallback) fallback.style.display = 'block';
+                    }}
+                  />
+                  <Search className="w-8 h-8 text-white hidden" />
+                </div>
+                <h4 className="text-xl font-bold text-white mb-3">Reddit</h4>
+                <p className="text-gray-300 text-sm leading-relaxed">
+                  Identify users engaging in competitor subreddits or related communities.
+                </p>
+              </div>
+
+              {/* LinkedIn */}
+              <div className="bg-white/10 backdrop-blur-sm border border-white/20 rounded-2xl p-6 text-center relative">
+                <div className="absolute top-2 right-2 bg-blue-500/70 text-white text-xs px-2 py-1 rounded-full">
+                  Coming soon
+                </div>
+                <div className="w-16 h-16 mx-auto mb-4 rounded-full overflow-hidden flex items-center justify-center">
+                  <img 
+                    src="/logos/linkedin.png" 
+                    alt="LinkedIn" 
+                    className="w-12 h-12 object-contain"
+                    onError={(e) => {
+                      e.currentTarget.style.display = 'none';
+                      const fallback = e.currentTarget.nextElementSibling as HTMLElement;
+                      if (fallback) fallback.style.display = 'block';
+                    }}
+                  />
+                  <Building className="w-8 h-8 text-white hidden" />
+                </div>
+                <h4 className="text-xl font-bold text-white mb-3">LinkedIn</h4>
+                <p className="text-gray-300 text-sm leading-relaxed">
+                  Connect with professionals who follow your competitors or their company pages.
+                </p>
+              </div>
             </div>
           </div>
         )}
       </div>
+      
+      {/* Footer */}
+      <footer className="w-full border-t border-white/10 bg-black/50 backdrop-blur-sm mt-16">
+        <div className="container mx-auto px-4 py-8">
+          <div className="flex flex-col md:flex-row items-center justify-between gap-6">
+            {/* Copyright */}
+            <div className="text-center md:text-left">
+              <p className="text-white/70 text-sm">
+                © 2025 FollowNet. All rights reserved.
+              </p>
+            </div>
+            
+            {/* Links */}
+            <div className="flex flex-col sm:flex-row items-center gap-4 sm:gap-6 text-sm">
+              <Link 
+                href="/terms" 
+                className="text-white/70 hover:text-white transition-colors duration-200"
+              >
+                Terms of Service
+              </Link>
+              <Link 
+                href="/privacy" 
+                className="text-white/70 hover:text-white transition-colors duration-200"
+              >
+                Privacy Policy
+              </Link>
+              <a 
+                href="mailto:kimiao777@outlook.com" 
+                className="text-white/70 hover:text-white transition-colors duration-200"
+              >
+                Contact
+              </a>
+              <a 
+                href="https://github.com/wendy7756/FollowNet" 
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-2 text-white/70 hover:text-white transition-colors duration-200"
+              >
+                <Github className="w-4 h-4" />
+                GitHub
+              </a>
+            </div>
+          </div>
+        </div>
+      </footer>
     </div>
   )
 }

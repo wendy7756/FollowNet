@@ -4,17 +4,18 @@ import os
 from datetime import datetime
 from typing import List, Dict, Any
 from playwright.async_api import async_playwright
+import time
 
-class GitHubFollowersListScraper:
-    """GitHub Stage 1: Batch scraping of followers/stargazers username lists (with pagination support)"""
+class OptimizedGitHubFollowersListScraper:
+    """Optimized GitHub Stage 1: Fast batch scraping of followers/stargazers username lists"""
     
     def __init__(self):
         self.data_dir = os.path.join(os.path.dirname(__file__), '..', '..', 'data')
         os.makedirs(self.data_dir, exist_ok=True)
     
-    async def scrape_followers_list(self, username: str, max_pages: int = 10) -> Dict[str, Any]:
+    async def scrape_followers_list_optimized(self, username: str, max_pages: int = 10) -> Dict[str, Any]:
         """
-        Scrape user's followers list
+        Optimized scrape user's followers list with performance improvements
         
         Args:
             username: GitHub username
@@ -23,39 +24,58 @@ class GitHubFollowersListScraper:
         Returns:
             Dict containing CSV file path, total_followers, and total_pages
         """
-        print(f"🚀 Stage 1: Starting to scrape followers list for {username}...")
+        print(f"🚀 Stage 1 (Optimized): Starting to scrape followers list for {username}...")
+        start_time = time.time()
         
         playwright = await async_playwright().start()
-        browser = await playwright.chromium.launch(headless=True)
+        browser = await playwright.chromium.launch(
+            headless=True,
+            args=[
+                '--disable-blink-features=AutomationControlled',
+                '--disable-dev-shm-usage',
+                '--no-sandbox',
+                '--disable-setuid-sandbox',
+                '--disable-gpu',
+                '--disable-web-security'
+            ]
+        )
         page = await browser.new_page()
         
-        # Set user agent
+        # Optimized headers and settings
         await page.set_extra_http_headers({
-            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.5',
+            'Accept-Encoding': 'gzip, deflate',
+            'Connection': 'keep-alive',
+            'Upgrade-Insecure-Requests': '1'
         })
+        
+        # Disable images and CSS for faster loading
+        await page.route('**/*.{png,jpg,jpeg,gif,svg,css,woff,woff2}', lambda route: route.abort())
         
         followers = []
         total_followers = 0
         
         try:
-            # First, get total followers count from profile page
+            # First, get total followers count from profile page (optimized)
             if max_pages > 0:
                 profile_url = f"https://github.com/{username}"
                 print(f"📊 Getting total followers count from: {profile_url}")
-                try:
-                    await page.goto(profile_url, wait_until="domcontentloaded", timeout=45000)
-                    await asyncio.sleep(3)
-                except Exception as e:
-                    print(f"⚠️ Profile page timeout, trying with shorter wait: {e}")
-                    await page.goto(profile_url, wait_until="domcontentloaded", timeout=60000)
-                    await asyncio.sleep(2)
                 
-                # Try to find followers count
+                await page.goto(profile_url, wait_until="domcontentloaded", timeout=15000)
+                
+                # Quick wait for essential elements
+                try:
+                    await page.wait_for_selector('.js-profile-editable-area', timeout=5000)
+                except:
+                    print("⚠️ Profile area not found quickly, continuing...")
+                
+                # Try to find followers count with optimized selectors
                 followers_selectors = [
                     'a[href$="tab=followers"] .text-bold',
                     'a[href*="followers"] .Counter',
-                    'a[href*="followers"] span',
-                    '.js-profile-editable-area a[href*="followers"] span'
+                    'a[href*="followers"] span'
                 ]
                 
                 for selector in followers_selectors:
@@ -75,25 +95,24 @@ class GitHubFollowersListScraper:
                                 print(f"📊 Total followers found: {total_followers}")
                                 break
                     except Exception as e:
-                        print(f"Error parsing followers count with selector {selector}: {e}")
                         continue
             
+            # Optimized pagination scraping
             for page_num in range(1, max_pages + 1):
+                page_start_time = time.time()
+                
                 # GitHub followers pagination URL format
                 url = f"https://github.com/{username}?page={page_num}&tab=followers"
                 print(f"📄 Scraping page {page_num}: {url}")
                 
+                await page.goto(url, wait_until="domcontentloaded", timeout=15000)
+                
+                # Quick check for user links
                 try:
-                    await page.goto(url, wait_until="domcontentloaded", timeout=45000)
-                    await asyncio.sleep(2)
-                except Exception as e:
-                    print(f"⚠️ Page {page_num} timeout, trying with longer timeout: {e}")
-                    try:
-                        await page.goto(url, wait_until="domcontentloaded", timeout=60000)
-                        await asyncio.sleep(3)
-                    except Exception as e2:
-                        print(f"❌ Page {page_num} failed after retry: {e2}")
-                        break
+                    await page.wait_for_selector('a[data-hovercard-type="user"]', timeout=3000)
+                except:
+                    print(f"⚠️ No user links found on page {page_num}, stopping")
+                    break
                 
                 # Get user links on current page
                 user_links = await page.query_selector_all('a[data-hovercard-type="user"]')
@@ -105,6 +124,7 @@ class GitHubFollowersListScraper:
                 page_followers = []
                 seen_usernames = set()
                 
+                # Optimized link processing
                 for link in user_links:
                     try:
                         href = await link.get_attribute('href')
@@ -121,43 +141,33 @@ class GitHubFollowersListScraper:
                                     'scraped_at': datetime.now().isoformat()
                                 })
                     except Exception as e:
-                        print(f"Error processing user link: {e}")
                         continue
                 
-                print(f"Page {page_num} found {len(page_followers)} followers")
+                page_time = time.time() - page_start_time
+                print(f"📦 Page {page_num} found {len(page_followers)} followers in {page_time:.2f}s")
                 followers.extend(page_followers)
                 
-                # Check if there's a next page
-                next_selectors = [
-                    '.pagination a:last-child',  # GitHub next page button
-                    'a[href*="page=' + str(page_num + 1) + '"]',  # Link containing next page number
-                    '.pagination a[rel="next"]'  # Standard next link
-                ]
-                
+                # Quick next page check (optimized)
                 has_next_page = False
-                for selector in next_selectors:
-                    try:
-                        next_button = await page.query_selector(selector)
-                        if next_button:
-                            button_text = await next_button.text_content()
-                            button_href = await next_button.get_attribute('href')
-                            print(f"Found next page button: text='{button_text}', href='{button_href}'")
-                            
-                            # Check if it's really a next page link
-                            if (button_text and 'next' in button_text.lower()) or \
-                               (button_href and f'page={page_num + 1}' in button_href):
+                try:
+                    # Check for pagination buttons
+                    pagination = await page.query_selector('.pagination')
+                    if pagination:
+                        next_links = await pagination.query_selector_all('a')
+                        for next_link in next_links:
+                            href = await next_link.get_attribute('href')
+                            if href and f'page={page_num + 1}' in href:
                                 has_next_page = True
                                 break
-                    except Exception as e:
-                        print(f"Error checking selector {selector}: {e}")
-                        continue
+                except:
+                    pass
                 
                 if not has_next_page:
                     print(f"No next page found, scraped {page_num} pages in total")
                     break
                 
-                # Avoid too frequent requests
-                await asyncio.sleep(1)
+                # Minimal delay between pages
+                await asyncio.sleep(0.3)
             
             # Save to CSV file (even if empty, create a file)
             if len(followers) == 0:
@@ -166,12 +176,14 @@ class GitHubFollowersListScraper:
                 print(f"⚠️ No followers found for {username}, created empty CSV file: {csv_file}")
             else:
                 csv_file = await self._save_to_csv(followers, f"{username}_followers_raw.csv")
-                print(f"✅ Stage 1 complete! Total {len(followers)} followers obtained, saved to: {csv_file}")
-            
+                
             # Calculate total pages
             total_pages = (total_followers + 49) // 50 if total_followers > 0 else 1
             
+            total_time = time.time() - start_time
+            print(f"✅ Stage 1 complete! Total {len(followers)} followers obtained in {total_time:.2f}s")
             print(f"📊 Total followers: {total_followers}, Total pages: {total_pages}")
+            print(f"⚡ Speed: {len(followers)/total_time:.1f} users/second")
             
             return {
                 "csv_file": csv_file,
@@ -192,9 +204,9 @@ class GitHubFollowersListScraper:
             await browser.close()
             await playwright.stop()
     
-    async def scrape_stargazers_list(self, owner: str, repo: str, max_pages: int = 10) -> str:
+    async def scrape_stargazers_list_optimized(self, owner: str, repo: str, max_pages: int = 10) -> str:
         """
-        Scrape repository's stargazers list
+        Optimized scrape repository's stargazers list
         
         Args:
             owner: Repository owner
@@ -204,13 +216,19 @@ class GitHubFollowersListScraper:
         Returns:
             CSV file path
         """
-        print(f"🚀 Stage 1: Starting to scrape stargazers list for {owner}/{repo}...")
+        print(f"🚀 Stage 1 (Optimized): Starting to scrape stargazers list for {owner}/{repo}...")
+        start_time = time.time()
         
         playwright = await async_playwright().start()
-        browser = await playwright.chromium.launch(headless=True)
+        browser = await playwright.chromium.launch(
+            headless=True,
+            args=['--disable-dev-shm-usage', '--no-sandbox']
+        )
         page = await browser.new_page()
         
-        # Set user agent
+        # Disable images for faster loading
+        await page.route('**/*.{png,jpg,jpeg,gif,svg}', lambda route: route.abort())
+        
         await page.set_extra_http_headers({
             'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
         })
@@ -223,17 +241,14 @@ class GitHubFollowersListScraper:
                 url = f"https://github.com/{owner}/{repo}/stargazers?page={page_num}"
                 print(f"📄 Scraping page {page_num}: {url}")
                 
+                await page.goto(url, wait_until="domcontentloaded", timeout=15000)
+                
+                # Quick wait for user links
                 try:
-                    await page.goto(url, wait_until="domcontentloaded", timeout=45000)
-                    await asyncio.sleep(2)
-                except Exception as e:
-                    print(f"⚠️ Stargazers page {page_num} timeout, trying with longer timeout: {e}")
-                    try:
-                        await page.goto(url, wait_until="domcontentloaded", timeout=60000)
-                        await asyncio.sleep(3)
-                    except Exception as e2:
-                        print(f"❌ Stargazers page {page_num} failed after retry: {e2}")
-                        break
+                    await page.wait_for_selector('a[data-hovercard-type="user"]', timeout=3000)
+                except:
+                    print(f"No user links found on page {page_num}, stopping")
+                    break
                 
                 # Get user links on current page
                 user_links = await page.query_selector_all('a[data-hovercard-type="user"]')
@@ -261,47 +276,38 @@ class GitHubFollowersListScraper:
                                     'scraped_at': datetime.now().isoformat()
                                 })
                     except Exception as e:
-                        print(f"Error processing user link: {e}")
                         continue
                 
                 print(f"Page {page_num} found {len(page_stargazers)} stargazers")
                 stargazers.extend(page_stargazers)
                 
-                # Check if there's a next page
-                next_selectors = [
-                    '.pagination a:last-child',  # GitHub next page button
-                    'a[href*="page=' + str(page_num + 1) + '"]',  # Link containing next page number
-                    '.pagination a[rel="next"]'  # Standard next link
-                ]
-                
+                # Quick next page check
                 has_next_page = False
-                for selector in next_selectors:
-                    try:
-                        next_button = await page.query_selector(selector)
-                        if next_button:
-                            button_text = await next_button.text_content()
-                            button_href = await next_button.get_attribute('href')
-                            print(f"Found next page button: text='{button_text}', href='{button_href}'")
-                            
-                            # Check if it's really a next page link
-                            if (button_text and 'next' in button_text.lower()) or \
-                               (button_href and f'page={page_num + 1}' in button_href):
+                try:
+                    pagination = await page.query_selector('.pagination')
+                    if pagination:
+                        next_links = await pagination.query_selector_all('a')
+                        for next_link in next_links:
+                            href = await next_link.get_attribute('href')
+                            if href and f'page={page_num + 1}' in href:
                                 has_next_page = True
                                 break
-                    except Exception as e:
-                        print(f"Error checking selector {selector}: {e}")
-                        continue
+                except:
+                    pass
                 
                 if not has_next_page:
                     print(f"No next page found, scraped {page_num} pages in total")
                     break
                 
-                # Avoid too frequent requests
-                await asyncio.sleep(1)
+                # Minimal delay
+                await asyncio.sleep(0.3)
             
             # Save to CSV file
             csv_file = await self._save_to_csv(stargazers, f"{owner}_{repo}_stargazers_raw.csv")
-            print(f"✅ Stage 1 complete! Total {len(stargazers)} stargazers obtained, saved to: {csv_file}")
+            
+            total_time = time.time() - start_time
+            print(f"✅ Stage 1 complete! Total {len(stargazers)} stargazers obtained in {total_time:.2f}s")
+            print(f"⚡ Speed: {len(stargazers)/total_time:.1f} users/second")
             
             return csv_file
             
@@ -333,27 +339,36 @@ class GitHubFollowersListScraper:
             return ""
     
     async def _save_empty_csv(self, filename: str) -> str:
-        """Save empty CSV file with headers"""
+        """Create empty CSV file with headers"""
         csv_file_path = os.path.join(self.data_dir, filename)
         
         try:
             with open(csv_file_path, 'w', newline='', encoding='utf-8') as csvfile:
-                # Create empty CSV with standard headers
                 fieldnames = ['username', 'profile_url', 'type', 'source_user', 'page_number', 'scraped_at']
                 writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
                 writer.writeheader()
             
             return csv_file_path
         except Exception as e:
-            print(f"Error saving empty CSV file: {e}")
+            print(f"Error creating empty CSV file: {e}")
             return ""
 
-async def main():
-    scraper = GitHubFollowersListScraper()
+# Performance test
+async def test_optimized_performance():
+    """Test the optimized scraper performance"""
+    scraper = OptimizedGitHubFollowersListScraper()
     
-    # Test followers scraping
-    csv_file = await scraper.scrape_followers_list("octocat", 2)
-    print(f"Generated file: {csv_file}")
+    print("🔬 Testing Optimized Stage 1 Performance")
+    print("=" * 50)
+    
+    # Test with a user that has followers
+    result = await scraper.scrape_followers_list_optimized("octocat", max_pages=2)
+    
+    print(f"\n📊 Results:")
+    print(f"CSV file: {result['csv_file']}")
+    print(f"Total followers: {result['total_followers']}")
+    print(f"Scraped followers: {result['scraped_followers']}")
+    print(f"Total pages: {result['total_pages']}")
 
 if __name__ == "__main__":
-    asyncio.run(main()) 
+    asyncio.run(test_optimized_performance()) 

@@ -2,7 +2,7 @@ import asyncio
 import csv
 import os
 from datetime import datetime
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from playwright.async_api import async_playwright
 import re
 
@@ -13,13 +13,13 @@ class GitHubProfileScraper:
         self.data_dir = os.path.join(os.path.dirname(__file__), '..', '..', 'data')
         os.makedirs(self.data_dir, exist_ok=True)
 
-    async def scrape_profiles_from_csv_with_progress(self, csv_file_path: str, max_users: int = 100, batch_size: int = 5):
+    async def scrape_profiles_from_csv_with_progress(self, csv_file_path: str, max_users: Optional[int] = None, batch_size: int = 5):
         """
         从CSV文件读取用户列表，获取每个用户的详细资料，带进度报告
 
         Args:
             csv_file_path: 第一阶段生成的CSV文件路径
-            max_users: 最大处理用户数
+            max_users: 最大处理用户数，None表示处理所有用户
             batch_size: 批次大小
 
         Yields:
@@ -33,17 +33,18 @@ class GitHubProfileScraper:
         if not usernames:
             yield {
                 'type': 'error',
-                'message': '没有找到用户名列表'
+                'message': 'No username list found'
             }
             return
 
-        # 限制处理数量
-        usernames = usernames[:max_users]
+        # 限制处理数量（如果指定了max_users）
+        if max_users is not None:
+            usernames = usernames[:max_users]
         total_users = len(usernames)
 
         yield {
             'type': 'progress',
-            'message': f'将处理 {total_users} 个用户',
+            'message': f'Will process {total_users} users',
             'progress': 0,
             'total_count': total_users,
             'processed_count': 0
@@ -69,7 +70,7 @@ class GitHubProfileScraper:
 
                 yield {
                     'type': 'progress',
-                    'message': f'处理批次 {batch_num}: {len(batch)} 个用户',
+                    'message': f'Processing batch {batch_num}: {len(batch)} users',
                     'progress': (processed_count / total_users) * 100,
                     'total_count': total_users,
                     'processed_count': processed_count
@@ -80,7 +81,7 @@ class GitHubProfileScraper:
                     try:
                         yield {
                             'type': 'progress',
-                            'message': f'正在获取用户资料: {username}',
+                            'message': f'Getting user profile: {username}',
                             'progress': (processed_count / total_users) * 100,
                             'current_user': username,
                             'total_count': total_users,
@@ -94,7 +95,7 @@ class GitHubProfileScraper:
 
                             yield {
                                 'type': 'user_completed',
-                                'message': f'✅ 成功获取 {username} 的资料',
+                                'message': f'✅ Successfully retrieved {username} profile',
                                 'progress': (processed_count / total_users) * 100,
                                 'current_user': username,
                                 'total_count': total_users,
@@ -105,7 +106,7 @@ class GitHubProfileScraper:
                             processed_count += 1
                             yield {
                                 'type': 'user_failed',
-                                'message': f'❌ 获取 {username} 的资料失败',
+                                'message': f'❌ Failed to retrieve {username} profile',
                                 'progress': (processed_count / total_users) * 100,
                                 'current_user': username,
                                 'total_count': total_users,
@@ -115,7 +116,7 @@ class GitHubProfileScraper:
                         processed_count += 1
                         yield {
                             'type': 'user_error',
-                            'message': f'获取 {username} 资料时出错: {e}',
+                            'message': f'Error retrieving {username} profile: {e}',
                             'progress': (processed_count / total_users) * 100,
                             'current_user': username,
                             'total_count': total_users,
@@ -127,7 +128,7 @@ class GitHubProfileScraper:
                 if i + batch_size < len(usernames):
                     yield {
                         'type': 'progress',
-                        'message': '批次间暂停...',
+                        'message': 'Pausing between batches...',
                         'progress': (processed_count / total_users) * 100,
                         'total_count': total_users,
                         'processed_count': processed_count
@@ -137,7 +138,7 @@ class GitHubProfileScraper:
             # 保存详细资料到新的CSV文件
             yield {
                 'type': 'progress',
-                'message': f'保存 {len(enriched_users)} 个用户的详细资料...',
+                'message': f'Saving detailed profiles for {len(enriched_users)} users...',
                 'progress': 95,
                 'total_count': total_users,
                 'processed_count': processed_count
@@ -147,7 +148,7 @@ class GitHubProfileScraper:
 
             yield {
                 'type': 'complete',
-                'message': f'✅ 第二阶段完成！获取了 {len(enriched_users)} 个用户的详细资料',
+                'message': f'✅ Stage 2 complete! Retrieved detailed info for {len(enriched_users)} users',
                 'progress': 100,
                 'total_count': total_users,
                 'processed_count': processed_count,
@@ -157,13 +158,13 @@ class GitHubProfileScraper:
         except Exception as e:
             yield {
                 'type': 'error',
-                'message': f'第二阶段处理过程中出错: {e}'
+                'message': f'Error during Stage 2 processing: {e}'
             }
         finally:
             await browser.close()
             await playwright.stop()
 
-    async def scrape_profiles_from_csv(self, csv_file_path: str, max_users: int = 100, batch_size: int = 5) -> str:
+    async def scrape_profiles_from_csv(self, csv_file_path: str, max_users: Optional[int] = None, batch_size: int = 5) -> str:
         """
         从CSV文件读取用户列表，获取每个用户的详细资料
 
@@ -175,7 +176,7 @@ class GitHubProfileScraper:
         Returns:
             包含详细资料的CSV文件路径
         """
-        print(f"🔍 第二阶段：开始从 {csv_file_path} 获取用户详细资料...")
+        print(f"🔍 Stage 2: Starting to get user details from {csv_file_path}...")
 
         # 读取第一阶段的用户列表
         usernames = await self._read_usernames_from_csv(csv_file_path)
@@ -184,8 +185,9 @@ class GitHubProfileScraper:
             print("没有找到用户名列表")
             return ""
 
-        # 限制处理数量
-        usernames = usernames[:max_users]
+        # 限制处理数量（如果指定了max_users）
+        if max_users is not None:
+            usernames = usernames[:max_users]
         print(f"将处理 {len(usernames)} 个用户")
 
         playwright = await async_playwright().start()
@@ -262,7 +264,7 @@ class GitHubProfileScraper:
             print(f"读取CSV文件时出错: {e}")
             return []
 
-    async def _get_user_details(self, username: str, page_obj, original_data: Dict) -> Dict:
+    async def _get_user_details(self, username: str, page_obj, original_data: Dict) -> Optional[Dict]:
         """获取用户详细信息"""
         try:
             # 访问用户主页

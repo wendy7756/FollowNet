@@ -12,21 +12,20 @@ from datetime import datetime
 import json
 
 from scrapers.github_two_stage import GitHubTwoStageScraper as GitHubScraper
-from scrapers.twitter import TwitterScraper
-from scrapers.producthunt import ProductHuntScraper
-from scrapers.weibo import WeiboScraper
-from scrapers.hackernews import HackerNewsScraper
-from scrapers.youtube import YouTubeScraper
-from scrapers.reddit import RedditScraper
-from scrapers.medium import MediumScraper
-from scrapers.bilibili import BilibiliScraper
 
 app = FastAPI(title="FollowNet API", version="1.0.0")
 
 # 启用CORS以允许前端访问
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],  # Next.js开发服务器
+    allow_origins=[
+        "http://localhost:3000",
+        "http://localhost:3001", 
+        "http://localhost:3002",
+        "http://localhost:3003",
+        "http://localhost:3004",
+        "http://localhost:3005"
+    ],  # Next.js开发服务器（支持多个端口）
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -34,8 +33,9 @@ app.add_middleware(
 
 class ScrapeRequest(BaseModel):
     url: str
+    max_users: Optional[int] = 0  # 0 means use default limit
+    unlimited: Optional[bool] = False  # Enable unlimited scraping
     page: Optional[int] = 1  # 添加页码参数
-    max_users: Optional[int] = 10  # 添加最大用户数参数
 
 class ScrapeResponse(BaseModel):
     success: bool
@@ -47,6 +47,8 @@ class ScrapeResponse(BaseModel):
     current_page: Optional[int] = None  # 当前页码
     has_next_page: Optional[bool] = None  # 是否有下一页
     cache_id: Optional[str] = None  # 缓存ID，用于后续分页请求
+    total_followers: Optional[int] = None  # 总followers数量
+    total_pages: Optional[int] = None  # 总页数
 
 # 存储爬取结果的内存缓存
 scrape_cache = {}
@@ -58,24 +60,8 @@ def detect_platform(url: str) -> str:
 
     if 'github.com' in domain:
         return 'github'
-    elif 'twitter.com' in domain or 'x.com' in domain:
-        return 'twitter'
-    elif 'producthunt.com' in domain:
-        return 'producthunt'
-    elif 'weibo.com' in domain:
-        return 'weibo'
-    elif 'news.ycombinator.com' in domain:
-        return 'hackernews'
-    elif 'youtube.com' in domain or 'youtu.be' in domain:
-        return 'youtube'
-    elif 'reddit.com' in domain:
-        return 'reddit'
-    elif 'medium.com' in domain:
-        return 'medium'
-    elif 'bilibili.com' in domain:
-        return 'bilibili'
     else:
-        raise ValueError(f"不支持的平台: {domain}")
+        raise ValueError(f"As an individual developer with limited time, I've currently only launched GitHub user scraping. This is an open-source project, and you're welcome to contribute on GitHub. Thank you for your understanding and support! Currently unsupported domain: {domain}")
 
 @app.get("/")
 async def root():
@@ -129,45 +115,32 @@ async def scrape_followers(request: ScrapeRequest):
         # 选择对应的爬取器
         if platform == 'github':
             scraper = GitHubScraper()
-        elif platform == 'twitter':
-            scraper = TwitterScraper()
-        elif platform == 'producthunt':
-            scraper = ProductHuntScraper()
-        elif platform == 'weibo':
-            scraper = WeiboScraper()
-        elif platform == 'hackernews':
-            scraper = HackerNewsScraper()
-        elif platform == 'youtube':
-            scraper = YouTubeScraper()
-        elif platform == 'reddit':
-            scraper = RedditScraper()
-        elif platform == 'medium':
-            scraper = MediumScraper()
-        elif platform == 'bilibili':
-            scraper = BilibiliScraper()
         else:
-            raise HTTPException(status_code=400, detail="不支持的平台")
+            raise HTTPException(status_code=400, detail="As an individual developer with limited time, I've currently only launched GitHub user scraping. This is an open-source project, and you're welcome to contribute on GitHub. Thank you for your understanding and support!")
 
-        print(f"开始执行第{request.page}页爬取，最多{request.max_users}个用户...")
+        print(f"开始执行第{request.page}页爬取，爬取当前页所有用户...")
 
+        # 设置默认值
+        page = request.page or 1
+        
         # 检查是否支持分页爬取
         if hasattr(scraper, 'scrape_page'):
             # 使用分页爬取
-            result = await scraper.scrape_page(request.url, request.page)
+            result = await scraper.scrape_page(request.url, page)
             has_next = result.get('has_next_page', False)
             data = result.get('data', [])
         else:
             # 兼容旧版本，只支持第一页
-            if request.page > 1:
+            if page > 1:
                 return ScrapeResponse(
                     success=False,
                     message="该平台暂不支持分页爬取",
                     platform=platform,
-                    current_page=request.page
+                    current_page=page
                 )
-            # 对于GitHub，传递max_users参数
+            # 对于GitHub，使用默认参数
             if platform == 'github' and hasattr(scraper, 'scrape'):
-                result = await scraper.scrape(request.url, max_users=request.max_users)
+                result = await scraper.scrape(request.url)
             else:
                 result = await scraper.scrape(request.url)
             data = result if result else []
@@ -225,65 +198,60 @@ async def scrape_stream(request: ScrapeRequest):
     async def generate_stream() -> AsyncGenerator[str, None]:
         try:
             # 发送开始消息
-            yield f"data: {json.dumps({'type': 'start', 'message': '开始爬取...', 'url': request.url})}\n\n"
+            yield f"data: {json.dumps({'type': 'start', 'message': 'Starting scrape...', 'url': request.url})}\n\n"
 
             # 检测平台
             platform = detect_platform(request.url)
             yield f"data: {json.dumps({'type': 'platform', 'platform': platform})}\n\n"
 
-            # 创建爬取器
+            # 创建爬取器 - 目前只支持GitHub
             if platform == 'github':
                 scraper = GitHubScraper()
-            elif platform == 'twitter':
-                scraper = TwitterScraper()
-            elif platform == 'producthunt':
-                scraper = ProductHuntScraper()
-            elif platform == 'weibo':
-                scraper = WeiboScraper()
-            elif platform == 'hackernews':
-                scraper = HackerNewsScraper()
-            elif platform == 'youtube':
-                scraper = YouTubeScraper()
-            elif platform == 'reddit':
-                scraper = RedditScraper()
-            elif platform == 'medium':
-                scraper = MediumScraper()
-            elif platform == 'bilibili':
-                scraper = BilibiliScraper()
             else:
-                yield f"data: {json.dumps({'type': 'error', 'message': f'不支持的平台: {platform}'})}\n\n"
+                yield f"data: {json.dumps({'type': 'error', 'message': f'As an individual developer with limited time, I have currently only launched GitHub user scraping. This is an open-source project, and you are welcome to contribute on GitHub. Thank you for your understanding and support! Currently unsupported platform: {platform}'})}\n\n"
                 return
 
-            # 为GitHub特殊处理，支持流式爬取
-            if platform == 'github' and hasattr(scraper, 'scrape_with_progress'):
-                async for progress_data in scraper.scrape_with_progress(request.url, max_users=request.max_users):
+            # 设置默认值
+            page = request.page or 1
+
+            # GitHub支持流式爬取（支持无限制爬取）
+            if hasattr(scraper, 'scrape_with_progress'):
+                # Determine scraping parameters
+                max_users = request.max_users or 0
+                unlimited = request.unlimited or False
+                max_pages = 5 if not unlimited and max_users <= 250 else min(max_users // 50, 100) if max_users > 0 else 5
+                
+                async for progress_data in scraper.scrape_with_progress(
+                    request.url, 
+                    max_pages=max_pages,
+                    max_users=max_users,
+                    unlimited=unlimited
+                ):
                     yield f"data: {json.dumps(progress_data)}\n\n"
                     await asyncio.sleep(0.1)  # 小延迟避免前端处理不过来
             else:
-                # 其他平台的普通爬取
-                yield f"data: {json.dumps({'type': 'progress', 'message': f'正在爬取{platform}数据...'})}\n\n"
+                # 普通爬取
+                yield f"data: {json.dumps({'type': 'progress', 'message': f'Scraping GitHub data...'})}\n\n"
 
                 if hasattr(scraper, 'scrape_page'):
-                    result = await scraper.scrape_page(request.url, request.page)
+                    result = await scraper.scrape_page(request.url, page)
                     data = result.get('data', [])
                     has_next = result.get('has_next_page', False)
                 else:
-                    if platform == 'github':
-                        result = await scraper.scrape(request.url, max_users=request.max_users)
-                    else:
-                        result = await scraper.scrape(request.url)
+                    result = await scraper.scrape(request.url)
                     data = result if result else []
                     has_next = False
 
                 # 发送最终结果
-                yield f"data: {json.dumps({
+                complete_data = {
                     'type': 'complete',
                     'data': data,
                     'total': len(data),
                     'has_next_page': has_next,
-                    'current_page': request.page,
+                    'current_page': page,
                     'platform': platform
-                })}\n\n"
+                }
+                yield f"data: {json.dumps(complete_data)}\n\n"
 
         except Exception as e:
             error_msg = f"爬取过程中出错: {str(e)}"
@@ -310,49 +278,33 @@ async def scrape_and_download(request: ScrapeRequest):
         platform = detect_platform(request.url)
         print(f"检测到平台: {platform}")
 
-        # 选择对应的爬取器
+        # 选择对应的爬取器 - 目前只支持GitHub
         if platform == 'github':
             scraper = GitHubScraper()
-        elif platform == 'twitter':
-            scraper = TwitterScraper()
-        elif platform == 'producthunt':
-            scraper = ProductHuntScraper()
-        elif platform == 'weibo':
-            scraper = WeiboScraper()
-        elif platform == 'hackernews':
-            scraper = HackerNewsScraper()
-        elif platform == 'youtube':
-            scraper = YouTubeScraper()
-        elif platform == 'reddit':
-            scraper = RedditScraper()
-        elif platform == 'medium':
-            scraper = MediumScraper()
-        elif platform == 'bilibili':
-            scraper = BilibiliScraper()
         else:
-            raise HTTPException(status_code=400, detail="不支持的平台")
+            raise HTTPException(status_code=400, detail="As an individual developer with limited time, I've currently only launched GitHub user scraping. This is an open-source project, and you're welcome to contribute on GitHub. Thank you for your understanding and support!")
 
-        print(f"开始执行第{request.page}页爬取，最多{request.max_users}个用户...")
+        # 设置默认值
+        page = request.page or 1
+        
+        print(f"开始执行第{page}页爬取，爬取当前页所有用户...")
 
         # 检查是否支持分页爬取
         if hasattr(scraper, 'scrape_page'):
             # 使用分页爬取
-            result = await scraper.scrape_page(request.url, request.page)
+            result = await scraper.scrape_page(request.url, page)
             has_next = result.get('has_next_page', False)
             data = result.get('data', [])
         else:
             # 兼容旧版本，只支持第一页
-            if request.page > 1:
+            if page > 1:
                 raise HTTPException(status_code=400, detail="该平台暂不支持分页爬取")
-            # 对于GitHub，传递max_users参数
-            if platform == 'github' and hasattr(scraper, 'scrape'):
-                result = await scraper.scrape(request.url, max_users=request.max_users)
-            else:
-                result = await scraper.scrape(request.url)
+            # 对于GitHub，使用默认参数
+            result = await scraper.scrape(request.url)
             data = result if result else []
             has_next = False
 
-        print(f"第{request.page}页爬取完成，结果数量: {len(data)}")
+        print(f"第{page}页爬取完成，结果数量: {len(data)}")
 
         if not data or len(data) == 0:
             raise HTTPException(status_code=404, detail="未找到数据或爬取失败")
@@ -367,7 +319,7 @@ async def scrape_and_download(request: ScrapeRequest):
         else:
             identifier = "unknown"
 
-        csv_filename = f"follownet_{platform}_{identifier}_page{request.page}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+        csv_filename = f"follownet_{platform}_{identifier}_page{page}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
         csv_path = os.path.join(tempfile.gettempdir(), csv_filename)
 
         # 保存数据到CSV
@@ -405,27 +357,11 @@ async def export_csv(cache_id: str):
     csv_filename = f"follownet_{platform}_page{page}_data_{cache_id}.csv"
     csv_path = os.path.join(tempfile.gettempdir(), csv_filename)
 
-    # 根据平台选择对应的爬取器来保存CSV
+    # 根据平台选择对应的爬取器来保存CSV - 目前只支持GitHub
     if platform == 'github':
         scraper = GitHubScraper()
-    elif platform == 'twitter':
-        scraper = TwitterScraper()
-    elif platform == 'producthunt':
-        scraper = ProductHuntScraper()
-    elif platform == 'weibo':
-        scraper = WeiboScraper()
-    elif platform == 'hackernews':
-        scraper = HackerNewsScraper()
-    elif platform == 'youtube':
-        scraper = YouTubeScraper()
-    elif platform == 'reddit':
-        scraper = RedditScraper()
-    elif platform == 'medium':
-        scraper = MediumScraper()
-    elif platform == 'bilibili':
-        scraper = BilibiliScraper()
     else:
-        raise HTTPException(status_code=400, detail="不支持的平台")
+        raise HTTPException(status_code=400, detail="As an individual developer with limited time, I've currently only launched GitHub user scraping. This is an open-source project, and you're welcome to contribute on GitHub. Thank you for your understanding and support!")
 
     # 保存数据到CSV
     await scraper.save_to_csv(result, csv_path)

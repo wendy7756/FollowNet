@@ -1,161 +1,219 @@
 # FollowNet
 
-一个强大的社交媒体关注者数据导出工具，支持 GitHub、Twitter、Product Hunt 等平台的数据爬取和导出。
+A powerful social media follower data export tool that supports scraping and exporting data from GitHub, Twitter, Product Hunt, and other platforms.
 
-## 🎯 功能特性
+## 🎯 Features
 
-- **多平台支持**: 支持 GitHub、Twitter/X、Product Hunt
-- **智能检测**: 自动识别输入的URL对应的平台
-- **数据导出**: 将爬取的数据导出为CSV格式
-- **现代界面**: 基于 Next.js 和 Tailwind CSS 的现代化UI
-- **高性能爬取**: 使用 Playwright 进行高效的数据爬取
+- **Multi-platform Support**: Supports GitHub, Twitter/X, Product Hunt, and more
+- **Smart Detection**: Automatically detects the platform from input URLs
+- **Data Export**: Export scraped data to CSV format
+- **Modern Interface**: Modern UI built with Next.js and Tailwind CSS
+- **High Performance**: Efficient data scraping using Playwright
+- **Unlimited Scraping**: Advanced mode for scraping large datasets (500-5000 users)
+- **Real-time Progress**: Live progress tracking and streaming updates
 
-## 🚀 支持的平台和数据
+## 🚀 Supported Platforms and Data
 
-### GitHub
-- Repositories的星标者信息
-- 用户的关注者信息
-- 提取用户名、显示名称、头像、简介等
+### GitHub ✅ Available
+- Repository stargazers information
+- User followers information
+- Extract username, display name, avatar, bio, follower count, repositories, etc.
 
-### Twitter/X
-- 用户的关注者列表
-- 用户关注的人列表
-- 提取用户名、显示名称、简介、统计信息等
+### Twitter/X 🔄 Coming Soon
+- User followers list
+- User following list
+- Extract username, display name, bio, statistics, etc.
 
-### Product Hunt
-- 产品的投票者信息
-- 用户的活动数据
-- 提取用户名、简介、投票时间等
+### Product Hunt 🔄 Coming Soon
+- Product voters information
+- User activity data
+- Extract username, bio, voting time, etc.
 
-## 📁 项目结构
+### Other Platforms 🔄 Coming Soon
+- **Instagram**: Followers and following data
+- **LinkedIn**: Professional connections
+- **YouTube**: Subscriber information
+- **Reddit**: Community engagement data
+- **TikTok**: Follower analytics
+- **Medium**: Reader engagement
+
+## 📁 Project Structure
 
 ```
 FollowNet/
-├── frontend/              # Next.js 前端应用
+├── frontend/              # Next.js frontend application
 │   ├── app/
-│   │   ├── page.tsx      # 主页面
-│   │   ├── layout.tsx    # 布局组件
-│   │   └── globals.css   # 全局样式
+│   │   ├── page.tsx      # Main page
+│   │   ├── layout.tsx    # Layout component
+│   │   └── globals.css   # Global styles
 │   ├── package.json
 │   └── next.config.js
-├── backend/               # FastAPI 后端应用
-│   ├── scrapers/          # 爬取器模块
-│   │   ├── base.py       # 基础爬取器类
-│   │   ├── github.py     # GitHub 爬取器
-│   │   ├── twitter.py    # Twitter 爬取器
-│   │   └── producthunt.py # Product Hunt 爬取器
-│   ├── main.py           # FastAPI 主应用
-│   └── requirements.txt   # Python 依赖
+├── backend/               # FastAPI backend application
+│   ├── scrapers/          # Scraper modules
+│   │   ├── base.py       # Base scraper class
+│   │   ├── github/       # GitHub scrapers
+│   │   └── ...           # Other platform scrapers
+│   ├── main.py           # FastAPI main application
+│   └── requirements.txt   # Python dependencies
 └── README.md
 ```
 
-## 🛠️ 安装和运行
+## 🛠️ Installation and Setup
 
-### 后端设置
+### Prerequisites
+- Python 3.9+
+- Node.js 18+
+- npm or yarn
 
-1. 进入后端目录：
+### Backend Setup
+
+1. Navigate to the backend directory:
 ```bash
 cd backend
 ```
 
-2. 安装Python依赖：
+2. Create and activate virtual environment:
+```bash
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+```
+
+3. Install Python dependencies:
 ```bash
 pip install -r requirements.txt
 ```
 
-3. 安装Playwright浏览器：
+4. Install Playwright browsers:
 ```bash
 playwright install
 ```
 
-4. 启动后端服务：
+5. Start the backend server:
 ```bash
 python main.py
 ```
 
-后端服务将在 `http://localhost:8000` 运行。
+The backend server will run on `http://localhost:8000`.
 
-### 前端设置
+### Frontend Setup
 
-1. 进入前端目录：
+1. Navigate to the frontend directory:
 ```bash
 cd frontend
 ```
 
-2. 安装Node.js依赖：
+2. Install Node.js dependencies:
 ```bash
 npm install
 ```
 
-3. 启动开发服务器：
+3. Start the development server:
 ```bash
 npm run dev
 ```
 
-前端应用将在 `http://localhost:3000` 运行。
+The frontend application will run on `http://localhost:3000`.
 
-## 📖 使用方法
+## 📖 Usage
 
-1. 在浏览器中打开 `http://localhost:3000`
-2. 在输入框中粘贴要爬取的URL，例如：
-   - GitHubRepositories: `https://github.com/owner/repo`
-   - GitHub用户: `https://github.com/username`
-   - Twitter用户: `https://twitter.com/username`
-   - Product Hunt产品: `https://www.producthunt.com/posts/product-name`
-3. 系统会自动检测平台类型
-4. 点击"开始爬取"按钮
-5. 等待爬取完成后，点击"下载CSV文件"获取数据
+1. Open `http://localhost:3000` in your browser
+2. Paste the URL you want to scrape in the input field, for example:
+   - GitHub Repository: `https://github.com/owner/repo`
+   - GitHub User: `https://github.com/username`
+   - Twitter User: `https://twitter.com/username` (coming soon)
+   - Product Hunt Product: `https://www.producthunt.com/posts/product-name` (coming soon)
+3. The system will automatically detect the platform type
+4. Configure advanced settings if needed (unlimited mode, max users)
+5. Click the "Start" button to begin scraping
+6. Wait for the scraping to complete, then click "Export CSV" to download the data
 
-## 🔧 API接口
+## 🔧 API Endpoints
 
-### POST /api/scrape
-爬取指定URL的数据
+### POST /api/scrape-stream
+Stream scraping data from the specified URL
 
-**请求体:**
+**Request Body:**
 ```json
 {
-  "url": "https://github.com/username/repo"
+  "url": "https://github.com/username/repo",
+  "max_users": 500,
+  "unlimited": false
 }
 ```
 
-**响应:**
-```json
-{
-  "success": true,
-  "message": "成功爬取 50 条数据",
-  "download_url": "/api/download/uuid",
-  "platform": "github",
-  "total_extracted": 50
-}
-```
+**Response:** Server-Sent Events (SSE) stream with real-time updates
 
 ### GET /api/download/{file_id}
-下载生成的CSV文件
+Download the generated CSV file
 
-## ⚠️ 注意事项
+## 🚀 Performance Features
 
-1. **合规使用**: 请确保您的爬取行为符合目标网站的使用条款
-2. **频率限制**: 避免过于频繁的请求，以免被平台限制
-3. **数据隐私**: 只爬取公开可见的数据
-4. **服务条款**: 使用前请仔细阅读各平台的服务条款
+- **Unlimited Mode**: Scrape 500-5000 users with optimized performance
+- **Concurrent Processing**: Up to 20 users processed in parallel
+- **Smart Pagination**: Intelligent page navigation and data extraction
+- **Resource Optimization**: Reduced memory usage and faster loading
+- **Retry Logic**: Automatic retry for failed requests
 
-## 🤝 贡献
+## ⚠️ Important Notes
 
-欢迎提交问题和功能请求！如果您想贡献代码，请：
+1. **Compliance**: Ensure your scraping activities comply with the target website's terms of service
+2. **Rate Limiting**: Avoid overly frequent requests to prevent being blocked by platforms
+3. **Data Privacy**: Only scrape publicly available data
+4. **Terms of Service**: Please read the terms of service of each platform before use
+5. **Ethical Usage**: Use this tool responsibly and respect platform policies
 
-1. Fork 这个项目
-2. 创建您的功能分支
-3. 提交您的更改
-4. 推送到分支
-5. 开启一个 Pull Request
+## 🤝 Contributing
 
-## 📄 许可证
+We welcome contributions to add support for more platforms! Here's how you can help:
 
-这个项目基于 MIT 许可证开源。详见 LICENSE 文件。
+### Adding New Platforms
 
-## 🙏 致谢
+1. **Fork** this repository
+2. **Create** a new branch for your platform: `git checkout -b feature/add-platform-name`
+3. **Implement** the scraper in `backend/scrapers/platform_name/`
+4. **Add** frontend detection logic in `frontend/app/page.tsx`
+5. **Test** your implementation thoroughly
+6. **Submit** a Pull Request with a clear description
 
-- [FastAPI](https://fastapi.tiangolo.com/) - 现代化的Python Web框架
-- [Next.js](https://nextjs.org/) - React全栈框架
-- [Playwright](https://playwright.dev/) - 现代化的Web自动化库
-- [Tailwind CSS](https://tailwindcss.com/) - 实用优先的CSS框架
+### Priority Platforms We Need Help With
+
+- **Twitter/X**: Followers and following scraping
+- **Instagram**: Follower data extraction
+- **LinkedIn**: Professional network data
+- **YouTube**: Subscriber information
+- **TikTok**: Follower analytics
+- **Reddit**: Community engagement data
+- **Medium**: Reader and clap data
+- **Discord**: Server member data
+- **Twitch**: Follower and subscriber data
+
+### Development Guidelines
+
+- Follow the existing code structure and patterns
+- Add comprehensive error handling
+- Include rate limiting and respectful scraping practices
+- Write clear documentation for new features
+- Test with multiple accounts and edge cases
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed contribution guidelines.
+
+## 📄 License
+
+This project is licensed under the Apache License 2.0. See the [LICENSE](LICENSE) file for details.
+
+## 🙏 Acknowledgments
+
+- [FastAPI](https://fastapi.tiangolo.com/) - Modern Python web framework
+- [Next.js](https://nextjs.org/) - React full-stack framework
+- [Playwright](https://playwright.dev/) - Modern web automation library
+- [Tailwind CSS](https://tailwindcss.com/) - Utility-first CSS framework
+
+## 📞 Support
+
+- **GitHub Issues**: [Report bugs or request features](https://github.com/wendy7756/FollowNet/issues)
+- **Email**: contact@follownet.com
+- **Documentation**: Check our [Wiki](https://github.com/wendy7756/FollowNet/wiki) for detailed guides
+
+---
+
+**⭐ Star this repository if you find it useful! Your support helps us continue developing new platform integrations.**
