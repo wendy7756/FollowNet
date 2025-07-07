@@ -1,0 +1,38 @@
+# Development files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+venv/
+env/
+ENV/
+.env*
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Test files
+test_*.py
+*_test.py
+debug_*.py
+
+# Data files
+data/
+*.csv
+*.json
+
+# Logs
+*.log
+
+# Temporary files
+tmp/
+temp/
+*.tmp 

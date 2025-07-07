@@ -1,91 +1,67 @@
 # FollowNet Deployment Guide
 
-## 🚀 Deployment Architecture
+This guide covers deploying FollowNet to production using **Zeabur** for backend and **Vercel** for frontend.
 
-- **Backend**: Railway (Supports Playwright + FastAPI)
-- **Frontend**: Vercel (Static hosting + Serverless functions)
+## 🏗️ Architecture Overview
 
-## 📋 Prerequisites
+- **Backend**: FastAPI + Python → Deployed on Zeabur
+- **Frontend**: Next.js → Deployed on Vercel
+- **Database**: File-based storage (can be upgraded to PostgreSQL)
 
-### Environment Requirements
-- Node.js 18+ (Frontend)
-- Python 3.11+ (Backend)
-- Git account
-- Railway account
-- Vercel account
+## 🚀 Backend Deployment (Zeabur)
 
-## 🔧 Backend Deployment (Railway)
+### 1. Prerequisites
 
-### 1. Prepare Railway Deployment
+- Zeabur account ([zeabur.com](https://zeabur.com))
+- GitHub repository with your code
 
-1. Login to [Railway](https://railway.app)
-2. Create a new project
-3. Connect your GitHub repository
+### 2. Deploy to Zeabur
 
-### 2. Configure Environment Variables
+1. **Connect GitHub Repository**
+   - Go to Zeabur dashboard
+   - Click "Create Project"
+   - Connect your GitHub repository
+   - Select the repository containing FollowNet
 
-Add the following environment variables in Railway project settings:
+2. **Configure Service**
+   - Select "backend" as the root directory
+   - Zeabur will automatically detect it's a Python project
+   - Set the following environment variables:
+     ```bash
+     PORT=8000
+     PYTHON_VERSION=3.11
+     ```
+
+3. **Build Configuration**
+   - Build Command: `pip install -r requirements.txt && playwright install chromium`
+   - Start Command: `python main.py`
+
+4. **Deploy**
+   - Click "Deploy"
+   - Wait for deployment to complete
+   - Note your Zeabur app URL (e.g., `https://your-app.zeabur.app`)
+
+### 3. Environment Variables
+
+Configure these in Zeabur dashboard:
 
 ```bash
-PYTHON_VERSION=3.11
 PORT=8000
+PYTHON_VERSION=3.11
 ```
-
-### 3. Deployment Configuration
-
-Railway will automatically detect the Python project and install dependencies. Make sure the `railway.json` file is in the root directory:
-
-```json
-{
-  "$schema": "https://railway.app/railway.schema.json",
-  "build": {
-    "builder": "NIXPACKS",
-    "buildCommand": "cd backend && pip install -r requirements.txt && playwright install chromium",
-    "watchPatterns": ["backend/**"]
-  },
-  "deploy": {
-    "startCommand": "cd backend && python main.py",
-    "healthcheckPath": "/",
-    "healthcheckTimeout": 100,
-    "restartPolicyType": "ON_FAILURE",
-    "restartPolicyMaxRetries": 10
-  }
-}
-```
-
-### 4. Get Deployment URL
-
-After successful deployment, Railway will provide a URL like:
-```
-https://your-app-name.railway.app
-```
-
-Record this URL, as it will be needed for the frontend configuration.
 
 ## 🌐 Frontend Deployment (Vercel)
 
-### 1. Update API Configuration
+### 1. Prerequisites
 
-In `frontend/next.config.js`, update the production API URL:
-
-```javascript
-async rewrites() {
-  return [
-    {
-      source: '/api/:path*',
-      destination: process.env.NODE_ENV === 'production' 
-        ? 'https://your-railway-app.railway.app/api/:path*'  // Replace with your Railway URL
-        : 'http://localhost:8000/api/:path*',
-    },
-  ];
-},
-```
+- Vercel account ([vercel.com](https://vercel.com))
+- GitHub repository connected
 
 ### 2. Deploy to Vercel
 
 #### Method 1: Via Vercel Dashboard
 
-1. Login to [Vercel](https://vercel.com)
+1. Go to Vercel dashboard
 2. Click "New Project"
 3. Import your GitHub repository
 4. Configure build settings:
@@ -111,7 +87,7 @@ Add the following environment variables in Vercel project settings:
 
 ```bash
 NODE_ENV=production
-NEXT_PUBLIC_API_URL=https://your-railway-app.railway.app
+NEXT_PUBLIC_API_URL=https://your-zeabur-app.zeabur.app
 ```
 
 ### 4. Custom Domain (Optional)
@@ -154,13 +130,13 @@ python main.py
 
 ### Production Environment
 
-Frontend automatically deploys to Vercel, backend deploys to Railway.
+Frontend automatically deploys to Vercel, backend deploys to Zeabur.
 
 ## 🛠️ Deployment Verification
 
 ### 1. Check Backend Health
 
-Visit: `https://your-railway-app.railway.app/`
+Visit: `https://your-zeabur-app.zeabur.app/`
 
 Should return:
 ```json
@@ -183,17 +159,21 @@ Visit your Vercel URL and verify:
 
 ## 🚨 Common Issues
 
-### Railway Deployment Issues
+### Zeabur Deployment Issues
 
 **Q: Playwright installation fails**
 ```bash
-# In Railway, ensure correct build command
+# In Zeabur, ensure correct build command
 playwright install chromium
 ```
 
 **Q: Out of memory**
-- Upgrade Railway plan
+- Upgrade Zeabur plan
 - Optimize scraper memory usage
+
+**Q: Build timeout**
+- Increase build timeout in Zeabur settings
+- Optimize build process
 
 ### Vercel Deployment Issues
 
@@ -210,18 +190,6 @@ playwright install chromium
   "start": "next start"
 }
 ```
-
-## 🔧 Alternative Deployment: Render
-
-If you prefer Render for backend deployment:
-
-### Render Configuration
-- **Root Directory**: `backend`
-- **Build Command**: `pip install -r requirements.txt && playwright install chromium`
-- **Start Command**: `python main.py`
-- **Environment Variables**: `PYTHON_VERSION=3.11.7`, `PORT=8000`
-
-This configuration has been tested and works successfully.
 
 ## 📊 Performance Optimization
 
@@ -249,8 +217,8 @@ This configuration has been tested and works successfully.
 
 ## 📈 Monitoring and Logging
 
-### Railway Monitoring
-- Use Railway built-in monitoring
+### Zeabur Monitoring
+- Use Zeabur built-in monitoring
 - Configure error alerts
 - View application logs
 
@@ -264,7 +232,7 @@ This configuration has been tested and works successfully.
 ### Automatic Deployment
 
 1. **Code Push** → GitHub
-2. **Railway Auto-build** → Backend deployment
+2. **Zeabur Auto-build** → Backend deployment
 3. **Vercel Auto-build** → Frontend deployment
 
 ### Branch Strategy
@@ -281,7 +249,7 @@ If you encounter deployment issues:
 2. Verify environment variable configuration
 3. Confirm dependency version compatibility
 4. Review official documentation:
-   - [Railway Docs](https://docs.railway.app)
+   - [Zeabur Docs](https://docs.zeabur.com)
    - [Vercel Docs](https://vercel.com/docs)
 
 ---

@@ -1,21 +1,22 @@
 # FollowNet
 
-**Turn your competitors’ followers into your future customers.**  
-FollowNet is a powerful tool that scrapes and exports social media follower data, helping you find, engage, and win over audiences who already follow your competitors — so you don’t have to start from scratch.
+**Steal Their Audience. Build Yours.**  
+FollowNet is the ultimate competitive intelligence tool that helps you steal your competitor's audience and turn them into your customers. Instead of building from zero, discover who's already engaged with your competitors, export their follower data, and strategically target the audience that's most likely to convert.
+
 ![demo](./demo.png)
 
 ---
 
 ## ✨ Why FollowNet?
 
-🔍 **Find Competitors’ Fans**  
+�� **Find Competitors' Fans**  
 Instantly discover who follows your competitors on platforms like GitHub, Twitter/X, YouTube, and more.
 
 🚀 **Grow Faster**  
 Reach out to warm audiences who already have an interest in your niche — no cold starts.
 
 🛠️ **Contribute & Shape the Future**  
-We’re building the best competitor analysis tool in the world — and we’d love your help! Whether you’re into web scraping, UI/UX, or platform integrations, your contributions can make a real impact.
+We're building the best competitor analysis tool in the world — and we'd love your help! Whether you're into web scraping, UI/UX, or platform integrations, your contributions can make a real impact.
 
 ---
 
@@ -25,7 +26,7 @@ We’re building the best competitor analysis tool in the world — and we’d l
 - GitHub, Twitter/X, Instagram, and more (LinkedIn, YouTube, Reddit coming soon!)
 
 🧠 **Smart URL Detection**  
-- Paste any profile or repo URL — we’ll auto-detect the platform.
+- Paste any profile or repo URL — we'll auto-detect the platform.
 
 📥 **Data Export**  
 - Export scraped data as CSV for easy integration with your CRM or marketing tools.
@@ -71,4 +72,4 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md) for how to set up your environment and 
 
 ---
 
-🔥 Let’s make competitor research smarter — together.
+🔥 Let's make competitor research smarter — together.

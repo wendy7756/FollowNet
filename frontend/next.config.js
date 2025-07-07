@@ -8,7 +8,7 @@ const nextConfig = {
       {
         source: '/api/:path*',
         destination: process.env.NODE_ENV === 'production' 
-          ? 'https://api.follownet.online/api/:path*'
+          ? 'https://your-zeabur-app.zeabur.app/api/:path*'
           : 'http://localhost:8000/api/:path*',
       },
     ];

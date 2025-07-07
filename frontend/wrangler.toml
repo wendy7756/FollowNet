@@ -11,5 +11,5 @@ dir = ".next"
 
 [[redirects]]
 from = "/api/*"
-to = "https://follownet.onrender.com/api/*"
+to = "https://your-zeabur-app.zeabur.app/api/*"
 status = 200 

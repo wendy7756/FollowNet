@@ -1,7 +1,17 @@
+# Core Framework
 fastapi==0.104.1
-uvicorn==0.24.0
+uvicorn[standard]==0.24.0
+
+# Browser Automation
 playwright==1.40.0
+
+# File & Data Handling
 python-multipart==0.0.6
 aiofiles==23.2.1
 pydantic==2.5.0
-aiohttp==3.12.13 
+
+# HTTP Client
+aiohttp==3.12.13
+
+# Production Optimization
+gunicorn==21.2.0 

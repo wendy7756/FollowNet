@@ -379,7 +379,7 @@ export default function Home() {
   )
 
   return (
-    <div className="min-h-screen bg-black relative">
+    <div className="min-h-screen w-full bg-black relative overflow-x-hidden">
         {/* Header */}
       <header className="fixed top-0 left-0 right-0 w-full border-b border-white/10 backdrop-blur-sm bg-black/80 z-50">
         <div className="container mx-auto px-4 py-4">
@@ -404,14 +404,14 @@ export default function Home() {
                 <span className="text-xs sm:text-sm font-medium hidden sm:inline">Star on Github</span>
                 <span className="text-xs font-medium sm:hidden">Star</span>
               </button>
-              <button
-                onClick={() => window.location.href = 'mailto:kimiao777@outlook.com'}
+              <Link
+                href="/features"
                 className="flex items-center gap-2 px-3 sm:px-4 py-2 border border-white/30 rounded-lg bg-transparent text-white hover:bg-white/10 transition-all duration-200"
               >
-                <Mail className="w-4 h-4" />
-                <span className="text-xs sm:text-sm font-medium hidden sm:inline">Contact</span>
-                <span className="text-xs font-medium sm:hidden">Email</span>
-              </button>
+                <Star className="w-4 h-4" />
+                <span className="text-xs sm:text-sm font-medium hidden sm:inline">Features</span>
+                <span className="text-xs font-medium sm:hidden">Features</span>
+              </Link>
             </div>
           </div>
         </div>
@@ -419,17 +419,16 @@ export default function Home() {
       
       <div className="container mx-auto px-4 py-8 relative z-10">
         {/* Main Title */}
-        <div className="text-center mb-12 mt-24">
-          <div className="mb-8">
-            <h1 className="font-bold text-cyan-400 leading-relaxed">
-              <div className="text-4xl md:text-5xl lg:text-6xl mb-3">Discover Who Follows Your Competitors</div>
-              <div className="text-3xl md:text-4xl lg:text-5xl">Turn Them Into Your Customers</div>
+        <div className="text-center mb-16 mt-40">
+          <div className="mb-12 max-w-6xl mx-auto">
+            <h1 className="font-black text-cyan-400 leading-tight text-5xl md:text-6xl lg:text-7xl xl:text-8xl whitespace-nowrap">
+              Steal Their Audience
             </h1>
           </div>
         </div>
 
         {/* Search form */}
-        <div className="max-w-6xl mx-auto mb-12">
+        <div className="max-w-6xl mx-auto mb-20">
           <form onSubmit={handleSubmit} className="relative">
             <div className="relative">
               <input
