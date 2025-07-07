@@ -1,6 +1,7 @@
 # FollowNet
 
-**Steal Their Audience. Build Yours.**  
+**🏆 Steal Their Audience. Build Yours.**  
+
 FollowNet is the ultimate competitive intelligence tool that helps you steal your competitor's audience and turn them into your customers. Instead of building from zero, discover who's already engaged with your competitors, export their follower data, and strategically target the audience that's most likely to convert.
 
 ![demo](./demo.png)
