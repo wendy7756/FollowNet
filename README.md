@@ -10,7 +10,7 @@ FollowNet is the ultimate competitive intelligence tool that helps you steal you
 
 ## ✨ Why FollowNet?
 
-�� **Find Competitors' Fans**  
+🔍 **Find Competitors' Fans**  
 Instantly discover who follows your competitors on platforms like GitHub, Twitter/X, YouTube, and more.
 
 🚀 **Grow Faster**  
