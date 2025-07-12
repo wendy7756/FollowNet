@@ -23,7 +23,7 @@ The most valuable contribution is adding support for new social media platforms.
 ## 🚀 Getting Started
 
 ### Prerequisites
-- Python 3.9+
+- Python 3.11+
 - Node.js 18+
 - Git
 - Basic knowledge of web scraping
