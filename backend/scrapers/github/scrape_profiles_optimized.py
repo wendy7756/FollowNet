@@ -3,370 +3,398 @@ import csv
 import os
 from datetime import datetime
 from typing import List, Dict, Any, Optional
-from playwright.async_api import async_playwright, Browser, BrowserContext
-import aiofiles
+from playwright.async_api import async_playwright
+import re
 import time
 
-class OptimizedGitHubProfileScraper:
-    """Optimized GitHub Profile Scraper with concurrent processing"""
-    
-    def __init__(self, max_concurrent: int = 10, timeout: int = 15000):
-        self.max_concurrent = max_concurrent
-        self.timeout = timeout
-        self.semaphore = asyncio.Semaphore(max_concurrent)
-        self.browser_pool: List[Browser] = []
-        self.context_pool: List[BrowserContext] = []
+class GitHubProfileScraperOptimized:
+    """GitHub第二阶段：高并发获取用户详细资料信息"""
+
+    def __init__(self):
+        self.data_dir = os.path.join(os.path.dirname(__file__), '..', '..', 'data')
+        os.makedirs(self.data_dir, exist_ok=True)
+
+    async def scrape_profiles_from_csv_concurrent(self, csv_file_path: str, max_users: Optional[int] = None, 
+                                                max_concurrent: int = 8, max_browsers: int = 3):
+        """
+        高并发异步获取用户详细资料
         
-    async def init_browser_pool(self, pool_size: int = 3):
-        """Initialize browser pool for concurrent processing"""
+        Args:
+            csv_file_path: 第一阶段生成的CSV文件路径
+            max_users: 最大处理用户数，None表示处理所有用户
+            max_concurrent: 最大并发数
+            max_browsers: 最大浏览器实例数
+        """
+        print(f"🚀 开始高并发获取用户详细资料，并发数: {max_concurrent}, 浏览器数: {max_browsers}")
+        
+        # 读取用户列表
+        usernames = await self._read_usernames_from_csv(csv_file_path)
+        if not usernames:
+            print("❌ 没有找到用户列表")
+            return ""
+        
+        # 限制处理数量
+        if max_users is not None:
+            usernames = usernames[:max_users]
+        total_users = len(usernames)
+        
+        print(f"📊 将处理 {total_users} 个用户")
+        
+        # 创建浏览器池
+        browser_pool = await self._create_browser_pool(max_browsers)
+        
+        # 创建信号量控制并发数
+        semaphore = asyncio.Semaphore(max_concurrent)
+        
+        # 存储结果
+        results = []
+        completed = 0
+        start_time = time.time()
+        
+        async def process_user_with_semaphore(username_data, browser_pool):
+            nonlocal completed
+            async with semaphore:
+                browser = browser_pool[completed % len(browser_pool)]
+                page = await browser.new_page()
+                
+                try:
+                    # 设置页面优化
+                    await self._optimize_page(page)
+                    
+                    # 添加随机延迟，避免过于频繁的请求
+                    import random
+                    await asyncio.sleep(random.uniform(0.5, 1.5))
+                    
+                    # 获取用户详细信息
+                    user_details = await self._get_user_details_fast(username_data['username'], page, username_data)
+                    
+                    if user_details:
+                        results.append(user_details)
+                        completed += 1
+                        
+                        # 显示进度
+                        elapsed = time.time() - start_time
+                        rate = completed / elapsed if elapsed > 0 else 0
+                        remaining = (total_users - completed) / rate if rate > 0 else 0
+                        
+                        print(f"✅ {completed}/{total_users} - {username_data['username']} - 速度: {rate:.1f}/s - 剩余: {remaining:.0f}s")
+                        
+                    return user_details
+                    
+                except Exception as e:
+                    completed += 1
+                    print(f"❌ {completed}/{total_users} - {username_data['username']} 错误: {e}")
+                    return None
+                    
+                finally:
+                    await page.close()
+        
+        # 创建所有任务
+        tasks = [process_user_with_semaphore(username_data, browser_pool) for username_data in usernames]
+        
+        # 并发执行所有任务
+        print(f"🔄 开始并发执行 {len(tasks)} 个任务...")
+        await asyncio.gather(*tasks, return_exceptions=True)
+        
+        # 关闭浏览器池
+        await self._close_browser_pool(browser_pool)
+        
+        # 保存结果
+        if results:
+            enriched_csv_path = await self._save_enriched_csv(results, csv_file_path)
+            
+            total_time = time.time() - start_time
+            avg_speed = len(results) / total_time
+            
+            print(f"🎉 完成！获取了 {len(results)} 个用户详细信息")
+            print(f"📊 总耗时: {total_time:.1f}s, 平均速度: {avg_speed:.1f} users/s")
+            
+            return enriched_csv_path
+        else:
+            print("❌ 没有获取到任何用户详细信息")
+            return ""
+
+    async def _create_browser_pool(self, max_browsers: int):
+        """创建浏览器池"""
+        print(f"🌐 创建 {max_browsers} 个浏览器实例...")
+        
         playwright = await async_playwright().start()
+        browser_pool = []
         
-        for i in range(pool_size):
+        for i in range(max_browsers):
             browser = await playwright.chromium.launch(
                 headless=True,
                 args=[
-                    '--disable-blink-features=AutomationControlled',
-                    '--disable-dev-shm-usage',
                     '--no-sandbox',
                     '--disable-setuid-sandbox',
+                    '--disable-dev-shm-usage',
                     '--disable-gpu',
                     '--disable-web-security',
-                    '--disable-features=VizDisplayCompositor'
+                    '--disable-features=VizDisplayCompositor',
+                    '--disable-background-timer-throttling',
+                    '--disable-backgrounding-occluded-windows',
+                    '--disable-renderer-backgrounding',
+                    '--disable-field-trial-config',
+                    '--disable-back-forward-cache',
+                    '--disable-ipc-flooding-protection',
+                    '--memory-pressure-off',
+                    '--max_old_space_size=4096'
                 ]
             )
-            context = await browser.new_context(
-                user_agent='Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                viewport={'width': 1280, 'height': 720}
-            )
+            browser_pool.append(browser)
             
-            self.browser_pool.append(browser)
-            self.context_pool.append(context)
-            
-    async def close_browser_pool(self):
-        """Clean up browser pool"""
-        for context in self.context_pool:
-            await context.close()
-        for browser in self.browser_pool:
+        print(f"✅ 浏览器池创建完成")
+        return browser_pool
+
+    async def _close_browser_pool(self, browser_pool):
+        """关闭浏览器池"""
+        print("🔒 关闭浏览器池...")
+        for browser in browser_pool:
             await browser.close()
-            
-    async def get_context(self) -> BrowserContext:
-        """Get available browser context from pool"""
-        if not self.context_pool:
-            await self.init_browser_pool()
-        return self.context_pool[len(self.context_pool) % len(self.context_pool)]
-    
-    async def scrape_user_profile_concurrent(self, username: str, original_data: Dict) -> Optional[Dict]:
-        """Scrape single user profile with concurrency control"""
-        async with self.semaphore:
-            context = await self.get_context()
-            page = await context.new_page()
-            
-            try:
-                profile_url = f"https://github.com/{username}"
-                
-                # Faster page load with reduced timeout
-                await page.goto(profile_url, wait_until="domcontentloaded", timeout=self.timeout)
-                
-                # Quick check if profile exists
-                try:
-                    await page.wait_for_selector('.js-profile-editable-area', timeout=3000)
-                except:
-                    print(f"❌ Profile not found or private: {username}")
-                    return None
-                
-                # Extract data with optimized selectors
-                user_data = {
-                    'username': username,
-                    'profile_url': profile_url,
-                    'platform': 'github',
-                    'type': original_data.get('type', 'follower'),
-                    'scraped_at': datetime.now().isoformat()
-                }
-                
-                # Parallel data extraction using Promise.all equivalent
-                tasks = [
-                    self._extract_display_name(page),
-                    self._extract_bio(page),
-                    self._extract_avatar(page, username),
-                    self._extract_stats(page),
-                    self._extract_contact_info(page)
-                ]
-                
-                results = await asyncio.gather(*tasks, return_exceptions=True)
-                
-                # Merge results
-                for result in results:
-                    if isinstance(result, dict):
-                        user_data.update(result)
-                
-                return user_data
-                
-            except Exception as e:
-                print(f"❌ Error scraping {username}: {e}")
-                return None
-            finally:
-                await page.close()
-    
-    async def _extract_display_name(self, page) -> Dict:
-        """Extract display name"""
+
+    async def _optimize_page(self, page):
+        """优化页面设置"""
+        # 轮换用户代理，避免被识别
+        import random
+        user_agents = [
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15'
+        ]
+        
+        await page.set_extra_http_headers({
+            'User-Agent': random.choice(user_agents)
+        })
+        
+        # 阻止不必要的资源加载
+        await page.route('**/*.{png,jpg,jpeg,gif,svg,webp,ico,css,woff,woff2,ttf,eot}', lambda route: route.abort())
+        await page.route('**/analytics.js', lambda route: route.abort())
+        await page.route('**/gtag.js', lambda route: route.abort())
+        await page.route('**/ads*.js', lambda route: route.abort())
+
+    async def _get_user_details_fast(self, username: str, page, original_data: Dict) -> Optional[Dict]:
+        """快速获取用户详细信息"""
+        profile_url = f"https://github.com/{username}"
+        
         try:
-            selectors = [
-                '.js-profile-editable-area .p-name',
-                '.js-profile-editable-area h1 span',
-                '.js-profile-editable-area h1'
+            # 导航到用户页面（增加超时时间）
+            await page.goto(profile_url, wait_until="domcontentloaded", timeout=30000)
+            
+            # 并发获取所有用户信息（只获取表格需要的字段）
+            tasks = [
+                self._get_display_name_fast(page),
+                self._get_bio_fast(page),
+                self._get_avatar_fast(page),
+                self._get_follower_counts_fast(page),
+                self._get_website_fast(page),
+                self._get_repos_count_fast(page)
             ]
             
-            for selector in selectors:
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            
+            # 组合结果 - 只保留表格需要的字段
+            user_info = {
+                'username': username,
+                'display_name': results[0] if not isinstance(results[0], Exception) else '',
+                'bio': results[1] if not isinstance(results[1], Exception) else '',
+                'avatar_url': results[2] if not isinstance(results[2], Exception) else '',
+                'follower_count': results[3][0] if not isinstance(results[3], Exception) and isinstance(results[3], (tuple, list)) else 0,
+                'following_count': results[3][1] if not isinstance(results[3], Exception) and isinstance(results[3], (tuple, list)) else 0,
+                'public_repos': results[5] if not isinstance(results[5], Exception) else 0,
+                'actions': results[4] if not isinstance(results[4], Exception) else '',  # 网站链接放到actions列
+                'profile_url': profile_url,
+                'platform': 'github',
+                'type': 'user',
+                'scraped_at': datetime.now().isoformat(),
+                'source_user': original_data.get('source_user', ''),
+                'source_repo': original_data.get('source_repo', ''),
+                'page_number': original_data.get('page_number', '')
+            }
+            
+            return user_info
+            
+        except Exception as e:
+            print(f"❌ 获取 {username} 详细信息时出错: {e}")
+            return None
+
+    async def _get_display_name_fast(self, page):
+        """快速获取显示名称"""
+        selectors = [
+            '.js-profile-editable-area .p-name',
+            '.js-profile-editable-area h1 span',
+            '.js-profile-editable-area h1'
+        ]
+        
+        for selector in selectors:
+            try:
                 element = await page.query_selector(selector)
                 if element:
-                    display_name = await element.text_content()
-                    if display_name and display_name.strip():
-                        return {'display_name': display_name.strip()}
-            
-            return {'display_name': ''}
-        except:
-            return {'display_name': ''}
-    
-    async def _extract_bio(self, page) -> Dict:
-        """Extract bio"""
-        try:
-            bio_element = await page.query_selector('.js-profile-editable-area .p-note')
-            if bio_element:
-                bio = await bio_element.text_content()
-                return {'bio': bio.strip() if bio else ''}
-            return {'bio': ''}
-        except:
-            return {'bio': ''}
-    
-    async def _extract_avatar(self, page, username: str) -> Dict:
-        """Extract avatar URL"""
-        try:
-            avatar_element = await page.query_selector('.js-profile-editable-area img.avatar')
-            if avatar_element:
-                avatar_url = await avatar_element.get_attribute('src')
-                return {'avatar_url': avatar_url or f'https://github.com/{username}.png'}
-            return {'avatar_url': f'https://github.com/{username}.png'}
-        except:
-            return {'avatar_url': f'https://github.com/{username}.png'}
-    
-    async def _extract_stats(self, page) -> Dict:
-        """Extract follower/following counts"""
-        try:
-            stats = {'follower_count': 0, 'following_count': 0, 'public_repos': 0}
-            
-            # Get all stat links
-            stat_links = await page.query_selector_all('.js-profile-editable-area a')
-            
-            for link in stat_links:
-                href = await link.get_attribute('href')
-                text = await link.text_content()
-                
-                if href and text:
-                    text = text.strip().replace(',', '')
+                    name = await element.text_content()
+                    return name.strip() if name else ''
+            except:
+                continue
+        return ''
+
+    async def _get_bio_fast(self, page):
+        """快速获取简介"""
+        # 基于你提供的HTML结构，优化选择器顺序
+        selectors = [
+            # 直接通过data-bio-text属性获取（最可靠）
+            '[data-bio-text]',
+            # 通过class组合获取
+            '.p-note.user-profile-bio.mb-3.js-user-profile-bio',
+            '.p-note.user-profile-bio',
+            '.js-user-profile-bio',
+            '.user-profile-bio',
+            '.p-note',
+            # 更广泛的选择器
+            '.js-profile-editable-area .p-note',
+            '.js-profile-editable-area .user-profile-bio',
+            '.js-profile-editable-area [data-testid="bio"]',
+            '.js-profile-editable-area div[data-testid="user.bio"]',
+            'div[data-testid="profile-bio"]',
+            # 包含emoji的bio
+            '.user-profile-bio > div',
+            '.p-note > div'
+        ]
+        
+        for i, selector in enumerate(selectors):
+            try:
+                element = await page.query_selector(selector)
+                if element:
+                    # 首先尝试从data-bio-text属性获取
+                    if 'data-bio-text' in selector:
+                        bio = await element.get_attribute('data-bio-text')
+                        if bio and bio.strip():
+                            print(f"✅ Bio found with selector {i+1}: {selector} -> {bio}")
+                            return bio.strip()
                     
-                    if 'followers' in href:
-                        import re
-                        numbers = re.findall(r'\d+', text)
-                        if numbers:
-                            stats['follower_count'] = int(numbers[0])
-                    elif 'following' in href:
-                        import re
-                        numbers = re.findall(r'\d+', text)
-                        if numbers:
-                            stats['following_count'] = int(numbers[0])
-                    elif 'repositories' in href or 'tab=repositories' in href:
-                        import re
-                        numbers = re.findall(r'\d+', text)
-                        if numbers:
-                            stats['public_repos'] = int(numbers[0])
-            
-            return stats
-        except:
-            return {'follower_count': 0, 'following_count': 0, 'public_repos': 0}
-    
-    async def _extract_contact_info(self, page) -> Dict:
-        """Extract contact information"""
-        try:
-            contact_info = {'company': '', 'location': '', 'website': '', 'twitter': '', 'email': ''}
-            
-            # Company
-            company_element = await page.query_selector('.js-profile-editable-area [data-test-selector="profile-company"]')
-            if company_element:
-                company = await company_element.text_content()
-                contact_info['company'] = company.strip() if company else ''
-            
-            # Location
-            location_element = await page.query_selector('.js-profile-editable-area [data-test-selector="profile-location"]')
-            if location_element:
-                location = await location_element.text_content()
-                contact_info['location'] = location.strip() if location else ''
-            
-            # Website
-            website_element = await page.query_selector('.js-profile-editable-area [data-test-selector="profile-website"] a')
-            if website_element:
-                website = await website_element.get_attribute('href')
-                contact_info['website'] = website or ''
-            
-            # Twitter
-            twitter_element = await page.query_selector('.js-profile-editable-area [data-test-selector="profile-twitter"] a')
-            if twitter_element:
-                twitter = await twitter_element.get_attribute('href')
-                contact_info['twitter'] = twitter or ''
-            
-            return contact_info
-        except:
-            return {'company': '', 'location': '', 'website': '', 'twitter': '', 'email': ''}
-    
-    async def scrape_profiles_batch_optimized(self, usernames: List[Dict], batch_size: int = 20):
-        """Scrape profiles in optimized batches"""
-        start_time = time.time()
-        total_users = len(usernames)
-        processed_count = 0
-        enriched_users = []
+                    # 然后尝试从文本内容获取
+                    bio = await element.text_content()
+                    if bio and bio.strip():
+                        print(f"✅ Bio found with selector {i+1}: {selector} -> {bio}")
+                        return bio.strip()
+            except Exception as e:
+                print(f"❌ Bio selector {i+1} '{selector}' failed: {e}")
+                continue
         
-        print(f"🚀 Starting optimized batch processing for {total_users} users")
-        print(f"⚙️ Concurrency: {self.max_concurrent}, Batch size: {batch_size}")
-        
-        # Initialize browser pool
-        await self.init_browser_pool(pool_size=min(3, self.max_concurrent // 3 + 1))
-        
-        try:
-            # Process in batches
-            for i in range(0, len(usernames), batch_size):
-                batch = usernames[i:i + batch_size]
-                batch_start = time.time()
-                
-                print(f"📦 Processing batch {i//batch_size + 1}: {len(batch)} users")
-                
-                # Create concurrent tasks for batch
-                tasks = [
-                    self.scrape_user_profile_concurrent(user_data['username'], user_data)
-                    for user_data in batch
-                ]
-                
-                # Execute batch concurrently
-                results = await asyncio.gather(*tasks, return_exceptions=True)
-                
-                # Process results
-                for result in results:
-                    if isinstance(result, dict) and result:
-                        enriched_users.append(result)
-                    processed_count += 1
-                
-                batch_time = time.time() - batch_start
-                avg_time_per_user = batch_time / len(batch)
-                
-                print(f"✅ Batch completed in {batch_time:.2f}s (avg: {avg_time_per_user:.2f}s/user)")
-                print(f"📊 Progress: {processed_count}/{total_users} ({processed_count/total_users*100:.1f}%)")
-                
-                # Small delay between batches to be respectful
-                if i + batch_size < len(usernames):
-                    await asyncio.sleep(0.5)
-        
-        finally:
-            await self.close_browser_pool()
-        
-        total_time = time.time() - start_time
-        print(f"🎉 Completed! {len(enriched_users)}/{total_users} profiles scraped in {total_time:.2f}s")
-        print(f"⚡ Average speed: {total_time/total_users:.2f}s per user")
-        
-        return enriched_users
+        print("❌ No bio found with any selector")
+        return ''
 
-    async def read_usernames_from_csv(self, csv_file_path: str) -> List[Dict[str, Any]]:
-        """Read usernames from CSV file"""
-        usernames = []
+    async def _get_avatar_fast(self, page):
+        """快速获取头像"""
+        selectors = [
+            '.js-profile-editable-area img.avatar',
+            '.js-profile-editable-area .avatar img'
+        ]
+        
+        for selector in selectors:
+            try:
+                element = await page.query_selector(selector)
+                if element:
+                    return await element.get_attribute('src') or ''
+            except:
+                continue
+        return ''
+
+    async def _get_follower_counts_fast(self, page):
+        """快速获取关注数"""
         try:
-            async with aiofiles.open(csv_file_path, 'r', encoding='utf-8') as csvfile:
-                content = await csvfile.read()
-                lines = content.strip().split('\n')
-                
-                if len(lines) <= 1:
-                    return []
-                
-                # Parse header
-                header = lines[0].split(',')
-                username_index = header.index('username') if 'username' in header else 0
-                
-                # Parse data rows
-                for line in lines[1:]:
-                    if line.strip():
-                        fields = line.split(',')
-                        if len(fields) > username_index:
-                            usernames.append({
-                                'username': fields[username_index].strip('"'),
-                                'type': fields[header.index('type')] if 'type' in header else 'follower'
-                            })
+            links = await page.query_selector_all('.js-profile-editable-area a')
+            follower_count = 0
+            following_count = 0
+            
+            for link in links:
+                href = await link.get_attribute('href')
+                if href and 'followers' in href:
+                    text = await link.text_content()
+                    follower_count = self._parse_count(text)
+                elif href and 'following' in href:
+                    text = await link.text_content()
+                    following_count = self._parse_count(text)
+            
+            return follower_count, following_count
+        except:
+            return 0, 0
+
+
+
+    async def _get_website_fast(self, page):
+        """快速获取网站"""
+        try:
+            link = await page.query_selector('.js-profile-editable-area a[rel="nofollow me"]')
+            if link:
+                return await link.get_attribute('href') or ''
+        except:
+            pass
+        return ''
+
+    async def _get_repos_count_fast(self, page):
+        """快速获取仓库数"""
+        try:
+            element = await page.query_selector('.js-profile-editable-area .Counter')
+            if element:
+                count_text = await element.text_content()
+                return self._parse_count(count_text)
+        except:
+            pass
+        return 0
+
+    def _parse_count(self, count_str: str) -> int:
+        """解析数字字符串"""
+        if not count_str:
+            return 0
+        
+        count_str = count_str.strip().replace(',', '')
+        
+        try:
+            if 'k' in count_str.lower():
+                return int(float(count_str.lower().replace('k', '')) * 1000)
+            elif 'm' in count_str.lower():
+                return int(float(count_str.lower().replace('m', '')) * 1000000)
+            else:
+                return int(count_str)
+        except:
+            return 0
+
+    async def _read_usernames_from_csv(self, csv_file_path: str) -> List[Dict[str, Any]]:
+        """读取用户名列表"""
+        users = []
+        try:
+            with open(csv_file_path, 'r', encoding='utf-8') as csvfile:
+                reader = csv.DictReader(csvfile)
+                for row in reader:
+                    users.append(row)
         except Exception as e:
-            print(f"Error reading CSV file: {e}")
-        
-        return usernames
+            print(f"读取CSV文件时出错: {e}")
+        return users
 
-    async def save_enriched_csv(self, users: List[Dict[str, Any]], original_csv_path: str) -> str:
-        """Save enriched data to CSV file"""
+    async def _save_enriched_csv(self, users: List[Dict[str, Any]], original_csv_path: str) -> str:
+        """保存enriched数据到CSV"""
+        base_name = os.path.splitext(os.path.basename(original_csv_path))[0]
+        enriched_csv_path = os.path.join(self.data_dir, f"{base_name}_enriched.csv")
+        
         if not users:
-            return ""
+            return enriched_csv_path
         
-        # Generate output filename
-        base_name = os.path.splitext(original_csv_path)[0]
-        output_file = base_name.replace('_raw', '_enriched_optimized') + '.csv'
-        
-        # Standard fieldnames
+        # 定义字段顺序 - 只保留表格需要的字段
         fieldnames = [
             'username', 'display_name', 'bio', 'avatar_url', 'profile_url',
-            'platform', 'type', 'follower_count', 'following_count', 'public_repos',
-            'company', 'location', 'website', 'twitter', 'email', 'scraped_at'
+            'platform', 'type', 'follower_count', 'following_count',
+            'public_repos', 'actions', 'scraped_at',
+            'source_user', 'source_repo', 'page_number'
         ]
         
         try:
-            async with aiofiles.open(output_file, 'w', encoding='utf-8') as csvfile:
-                # Write header
-                await csvfile.write(','.join(fieldnames) + '\n')
-                
-                # Write data rows
-                for user in users:
-                    row = []
-                    for field in fieldnames:
-                        value = str(user.get(field, ''))
-                        # Escape commas and quotes
-                        if ',' in value or '"' in value:
-                            value = f'"{value.replace("""", """""")}"'
-                        row.append(value)
-                    await csvfile.write(','.join(row) + '\n')
+            with open(enriched_csv_path, 'w', newline='', encoding='utf-8') as csvfile:
+                writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+                writer.writeheader()
+                writer.writerows(users)
             
-            print(f"✅ Enriched data saved to: {output_file}")
-            return output_file
+            print(f"✅ 详细信息已保存到: {enriched_csv_path}")
+            return enriched_csv_path
             
         except Exception as e:
-            print(f"Error saving enriched CSV: {e}")
-            return ""
-
-# Performance comparison function
-async def compare_performance():
-    """Compare performance between original and optimized scrapers"""
-    print("🔬 Performance Comparison Test")
-    print("=" * 50)
-    
-    # Test data
-    test_usernames = [
-        {'username': 'octocat', 'type': 'follower'},
-        {'username': 'torvalds', 'type': 'follower'},
-        {'username': 'gaearon', 'type': 'follower'},
-        {'username': 'sindresorhus', 'type': 'follower'},
-        {'username': 'tj', 'type': 'follower'}
-    ]
-    
-    # Test optimized scraper
-    optimized_scraper = OptimizedGitHubProfileScraper(max_concurrent=5)
-    
-    print("🚀 Testing Optimized Scraper...")
-    start_time = time.time()
-    optimized_results = await optimized_scraper.scrape_profiles_batch_optimized(test_usernames, batch_size=5)
-    optimized_time = time.time() - start_time
-    
-    print(f"\n📊 Results:")
-    print(f"Optimized: {len(optimized_results)} users in {optimized_time:.2f}s ({optimized_time/len(test_usernames):.2f}s per user)")
-    
-    return optimized_results
-
-if __name__ == "__main__":
-    asyncio.run(compare_performance()) 
+            print(f"保存CSV文件时出错: {e}")
+            return "" 

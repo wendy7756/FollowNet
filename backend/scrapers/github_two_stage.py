@@ -4,11 +4,13 @@ from typing import List, Dict, Any
 from .base import BaseScraper
 from .github.get_followers_list import GitHubFollowersListScraper
 from .github.scrape_profiles import GitHubProfileScraper
+from .github.scrape_profiles_optimized import GitHubProfileScraperOptimized
 from .performance_config import PERFORMANCE_CONFIG, BROWSER_ARGS, OPTIMIZED_HEADERS
 from playwright.async_api import async_playwright
 from datetime import datetime
 import csv
 import re
+import time
 
 class GitHubTwoStageScraper(BaseScraper):
     """GitHub两阶段爬取器 - 优化版本"""
@@ -266,7 +268,7 @@ class GitHubTwoStageScraper(BaseScraper):
             'has_next_page': total_pages > 1
         }
 
-    async def _scrape_profiles_concurrent(self, csv_file_path: str, max_concurrent: int = 3):
+    async def _scrape_profiles_concurrent(self, csv_file_path: str, max_concurrent: int = 5):
         """
         并发获取用户详细信息的优化版本
         """
@@ -292,28 +294,20 @@ class GitHubTwoStageScraper(BaseScraper):
             'processed_count': 0
         }
 
-        # 启动多个浏览器实例
-        playwright = await async_playwright().start()
-        browsers = []
+        # 使用优化的浏览器池
+        playwright, browsers = await self._create_optimized_browser_pool(max_concurrent)
         pages = []
         
         try:
-            # 创建多个浏览器实例
-            for i in range(max_concurrent):
-                browser = await playwright.chromium.launch(
-                    headless=True,
-                    args=['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
-                )
-                browsers.append(browser)
-                
+            # 为每个浏览器创建优化页面
+            for browser in browsers:
                 page = await browser.new_page()
-                await page.set_extra_http_headers({
-                    'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-                })
+                await self._optimize_page_settings(page)
                 pages.append(page)
 
             enriched_users = []
             processed_count = 0
+            start_time = time.time()  # 添加性能监控
             
             # 创建任务队列
             semaphore = asyncio.Semaphore(max_concurrent)
@@ -325,13 +319,23 @@ class GitHubTwoStageScraper(BaseScraper):
                     page = pages[page_index % len(pages)]
                     
                     try:
+                        # 添加随机延迟，避免过于频繁的请求 (调整为更快的延迟)
+                        import random
+                        await asyncio.sleep(random.uniform(0.1, 0.3))
+                        
                         user_details = await self._get_user_details_optimized(username, page, username_data)
                         if user_details:
                             enriched_users.append(user_details)
                             processed_count += 1
+                            
+                            # 添加性能统计 (scrape_profiles_optimized.py 的优化)
+                            elapsed = time.time() - start_time
+                            rate = processed_count / elapsed if elapsed > 0 else 0
+                            remaining = (total_users - processed_count) / rate if rate > 0 else 0
+                            
                             yield {
                                 'type': 'user_completed',
-                                'message': f'✅ {username} ({processed_count}/{total_users})',
+                                'message': f'✅ {username} ({processed_count}/{total_users}) - 速度: {rate:.1f}/s - 剩余: {remaining:.0f}s',
                                 'progress': (processed_count / total_users) * 100,
                                 'current_user': username,
                                 'total_count': total_users,
@@ -402,6 +406,59 @@ class GitHubTwoStageScraper(BaseScraper):
             for browser in browsers:
                 await browser.close()
             await playwright.stop()
+
+    async def _create_optimized_browser_pool(self, max_browsers: int):
+        """创建优化的浏览器池 - 合并了 scrape_profiles_optimized.py 的优化"""
+        print(f"🌐 创建 {max_browsers} 个优化浏览器实例...")
+        
+        playwright = await async_playwright().start()
+        browser_pool = []
+        
+        for i in range(max_browsers):
+            browser = await playwright.chromium.launch(
+                headless=True,
+                args=[
+                    '--no-sandbox',
+                    '--disable-setuid-sandbox',
+                    '--disable-dev-shm-usage',
+                    '--disable-gpu',
+                    '--disable-web-security',
+                    '--disable-features=VizDisplayCompositor',
+                    '--disable-background-timer-throttling',
+                    '--disable-backgrounding-occluded-windows',
+                    '--disable-renderer-backgrounding',
+                    '--disable-field-trial-config',
+                    '--disable-back-forward-cache',
+                    '--disable-ipc-flooding-protection',
+                    '--memory-pressure-off',
+                    '--max_old_space_size=4096'
+                ]
+            )
+            browser_pool.append(browser)
+            
+        print(f"✅ 优化浏览器池创建完成")
+        return playwright, browser_pool
+
+    async def _optimize_page_settings(self, page):
+        """优化页面设置 - 合并了 scrape_profiles_optimized.py 的优化"""
+        # 轮换用户代理，避免被识别
+        import random
+        user_agents = [
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15'
+        ]
+        
+        await page.set_extra_http_headers({
+            'User-Agent': random.choice(user_agents)
+        })
+        
+        # 阻止不必要的资源加载，提升速度
+        await page.route('**/*.{png,jpg,jpeg,gif,svg,webp,ico,css,woff,woff2,ttf,eot}', lambda route: route.abort())
+        await page.route('**/analytics.js', lambda route: route.abort())
+        await page.route('**/gtag.js', lambda route: route.abort())
+        await page.route('**/ads*.js', lambda route: route.abort())
 
     async def _get_user_details_optimized(self, username: str, page_obj, original_data: Dict) -> Dict:
         """优化的用户详细信息获取方法"""
@@ -488,15 +545,49 @@ class GitHubTwoStageScraper(BaseScraper):
             pass
 
     async def _get_bio(self, page_obj, user_info: Dict):
-        """获取bio"""
-        try:
-            bio_element = await page_obj.query_selector('.p-note .user-profile-bio')
-            if bio_element:
-                bio = await bio_element.text_content()
-                if bio and bio.strip():
-                    user_info['bio'] = bio.strip()
-        except:
-            pass
+        """获取bio - 优化版本支持多种选择器"""
+        # 基于HTML结构，优化选择器顺序
+        selectors = [
+            # 直接通过data-bio-text属性获取（最可靠）
+            '[data-bio-text]',
+            # 通过class组合获取
+            '.p-note.user-profile-bio.mb-3.js-user-profile-bio',
+            '.p-note.user-profile-bio',
+            '.js-user-profile-bio',
+            '.user-profile-bio',
+            '.p-note',
+            # 更广泛的选择器
+            '.js-profile-editable-area .p-note',
+            '.js-profile-editable-area .user-profile-bio',
+            '.js-profile-editable-area [data-testid="bio"]',
+            '.js-profile-editable-area div[data-testid="user.bio"]',
+            'div[data-testid="profile-bio"]',
+            # 包含emoji的bio
+            '.user-profile-bio > div',
+            '.p-note > div'
+        ]
+        
+        for i, selector in enumerate(selectors):
+            try:
+                element = await page_obj.query_selector(selector)
+                if element:
+                    # 首先尝试从data-bio-text属性获取
+                    if 'data-bio-text' in selector:
+                        bio = await element.get_attribute('data-bio-text')
+                        if bio and bio.strip():
+                            user_info['bio'] = bio.strip()
+                            return
+                    
+                    # 然后尝试从文本内容获取
+                    bio = await element.text_content()
+                    if bio and bio.strip():
+                        user_info['bio'] = bio.strip()
+                        return
+            except Exception as e:
+                continue
+        
+        # 如果没有找到bio，设置为空字符串
+        user_info['bio'] = ''
 
     async def _get_follower_counts(self, page_obj, user_info: Dict):
         """获取关注者数量"""
@@ -693,11 +784,13 @@ class GitHubTwoStageScraper(BaseScraper):
 
         print(f"第一阶段完成，生成文件: {stage1_csv}")
 
-        # 第二阶段：获取用户详细信息
-        print("🔍 开始第二阶段：获取用户详细信息...")
-        stage2_csv = await self.stage2_scraper.scrape_profiles_from_csv(
+        # 第二阶段：获取用户详细信息（使用优化版本）
+        print("🔍 开始第二阶段：获取用户详细信息（高并发模式）...")
+        optimized_scraper = GitHubProfileScraperOptimized()
+        stage2_csv = await optimized_scraper.scrape_profiles_from_csv_concurrent(
             stage1_csv,
-            batch_size=5  # 小批次处理，避免过载
+            max_concurrent=8,   # 保守的并发数，避免GitHub限制
+            max_browsers=3      # 浏览器池大小
         )
 
         if not stage2_csv or not os.path.exists(stage2_csv):
