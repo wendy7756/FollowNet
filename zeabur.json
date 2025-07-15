@@ -8,13 +8,9 @@
         "type": "git"
       },
       "rootDirectory": "backend",
-      "buildCommand": "pip install -r requirements.txt && playwright install chromium",
-      "startCommand": "uvicorn main:app --host 0.0.0.0 --port $PORT",
       "environment": {
         "PORT": "8000",
-        "PYTHON_VERSION": "3.11.7",
-        "PYTHONPATH": "/app",
-        "PLAYWRIGHT_BROWSERS_PATH": "/app/.playwright"
+        "FRONTEND_URL": "https://www.follownet.online"
       },
       "healthCheck": {
         "path": "/",
