@@ -16,16 +16,26 @@ from scrapers.github_two_stage import GitHubTwoStageScraper as GitHubScraper
 app = FastAPI(title="FollowNet API", version="1.0.0")
 
 # 启用CORS以允许前端访问
+allowed_origins = [
+    "http://localhost:3000",
+    "http://localhost:3001", 
+    "http://localhost:3002",
+    "http://localhost:3003",
+    "http://localhost:3004",
+    "http://localhost:3005"
+]
+
+# 添加生产环境URL
+frontend_url = os.getenv("FRONTEND_URL")
+if frontend_url:
+    allowed_origins.append(frontend_url)
+    # 同时添加不带www的版本
+    if frontend_url.startswith("https://www."):
+        allowed_origins.append(frontend_url.replace("https://www.", "https://"))
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "http://localhost:3001", 
-        "http://localhost:3002",
-        "http://localhost:3003",
-        "http://localhost:3004",
-        "http://localhost:3005"
-    ],  # Next.js开发服务器（支持多个端口）
+    allow_origins=allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

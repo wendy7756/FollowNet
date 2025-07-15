@@ -126,7 +126,7 @@ export default function Home() {
     setAbortController(controller)
 
     try {
-      const response = await fetch('http://localhost:8000/api/scrape-stream', {
+      const response = await fetch('/api/scrape-stream', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
