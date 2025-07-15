@@ -22,7 +22,8 @@ allowed_origins = [
     "http://localhost:3002",
     "http://localhost:3003",
     "http://localhost:3004",
-    "http://localhost:3005"
+    "http://localhost:3005",
+    "https://follownet.online"
 ]
 
 # 添加生产环境URL
