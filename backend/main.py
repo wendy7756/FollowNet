@@ -23,7 +23,8 @@ allowed_origins = [
     "http://localhost:3003",
     "http://localhost:3004",
     "http://localhost:3005",
-    "https://follownet.online"
+    "https://follownet.online",
+    "https://www.follownet.online"
 ]
 
 # 添加生产环境URL
@@ -33,14 +34,29 @@ if frontend_url:
     # 同时添加不带www的版本
     if frontend_url.startswith("https://www."):
         allowed_origins.append(frontend_url.replace("https://www.", "https://"))
+    # 添加带www的版本
+    elif frontend_url.startswith("https://") and not frontend_url.startswith("https://www."):
+        allowed_origins.append(frontend_url.replace("https://", "https://www."))
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
+    allow_origin_regex=r"https://.*\.vercel\.app|https://.*\.netlify\.app",
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["*"],
 )
+
+# 添加OPTIONS请求处理
+@app.options("/api/scrape-stream")
+async def options_scrape_stream():
+    """处理CORS预检请求"""
+    return {"message": "OK"}
+
+@app.options("/api/{path:path}")
+async def options_handler(path: str):
+    """通用OPTIONS请求处理"""
+    return {"message": "OK"}
 
 class ScrapeRequest(BaseModel):
     url: str
